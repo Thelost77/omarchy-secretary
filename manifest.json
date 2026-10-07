@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.thelost77.omasecretary",
+  "name": "OmaSecretary",
+  "version": "0.1.0",
+  "author": "Wiktor Ziębka",
+  "license": "MIT",
+  "description": "The GitLab merge requests that wait for you: review requests, replies, and news on your own merge requests.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "OmaSecretary",
+    "description": "GitLab merge requests that wait for you",
+    "category": "Info",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
