@@ -190,6 +190,13 @@ Item {
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
           }
+
+          MouseArea {
+            anchors.fill: parent
+            enabled: !!pill.modelData.session
+            cursorShape: Qt.PointingHandCursor
+            onClicked: page.panel.continueRow(page.row, pill.modelData.session)
+          }
         }
       }
     }

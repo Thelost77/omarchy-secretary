@@ -23,6 +23,8 @@ Item {
   property var reviews: ({})
   // The markers of the open tmux sessions, for example "review:group/app!5".
   property var sessions: ({})
+  // The sessions that the review launcher saved, in the same form.
+  property var savedSessions: ({})
   property var palette: ({})
   property bool ready: false
   property bool refreshing: false
@@ -139,6 +141,25 @@ Item {
     return true
   }
 
+  // Closes the tmux sessions of the plugin. The saved sessions stay, so they can continue later.
+  function closeSessions() {
+    if (root.reviewPath === "") return
+    Quickshell.execDetached([root.reviewPath, "close"])
+    root.sessions = ({})
+    sessionsCheck.restart()
+  }
+
+  // Opens the review or fix session of a row as it is: a running session in a
+  // terminal, or a saved one without a new prompt.
+  function continueSession(key, kind) {
+    var row = Model.rowByKey(root.state, key)
+    if (!row || root.reviewPath === "") return false
+    var command = [root.reviewPath, "open", "--continue"]
+    if (kind === "fix") command.push("--fix")
+    Quickshell.execDetached(command.concat([row.project, String(row.iid)]))
+    return true
+  }
+
   function openRow(key) {
     var row = Model.rowByKey(root.state, key)
     if (!row) return false
@@ -179,6 +200,14 @@ Item {
     onLoadFailed: root.palette = ({})
   }
 
+  // Reads the tmux sessions again after a close, to show a session that did not close.
+  Timer {
+    id: sessionsCheck
+    interval: 1000
+    repeat: false
+    onTriggered: sessionsProc.running = true
+  }
+
   Process {
     id: sessionsProc
     running: false
@@ -197,8 +226,14 @@ Item {
     watchChanges: false
     printErrors: false
 
-    onLoaded: root.reviews = Model.parseReviews(text())
-    onLoadFailed: root.reviews = ({})
+    onLoaded: {
+      root.reviews = Model.parseReviews(text())
+      root.savedSessions = Model.parseSavedSessions(text())
+    }
+    onLoadFailed: {
+      root.reviews = ({})
+      root.savedSessions = ({})
+    }
   }
 
   FileView {

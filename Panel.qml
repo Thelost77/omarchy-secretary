@@ -21,6 +21,7 @@ KeyboardPanel {
     ["c", "review"],
     ["f", "fix"],
     ["x", "seen"],
+    ["C/F", "continue"],
     ["H", "hide"],
     ["a", "hidden"],
     ["r", "refresh"]
@@ -38,6 +39,9 @@ KeyboardPanel {
   property bool cursorActive: false
   property bool showHidden: false
   property real now: Date.now()
+  readonly property int runningSessions: svc ? Object.keys(svc.sessions).length : 0
+  // The first click on "Close sessions" asks; a second click within 3 seconds closes them.
+  property bool confirmClose: false
 
   // The detail page shows one merge request. Leaving the page marks its row as seen.
   property string detailKey: ""
@@ -55,6 +59,7 @@ KeyboardPanel {
       return
     }
     panel.showHidden = false
+    panel.confirmClose = false
     panel.setCursor(0)
     panel.cursorActive = false
     panel.now = Date.now()
@@ -110,6 +115,8 @@ KeyboardPanel {
     if (panel.detail.diffUrl) actions.push({ kind: "diff", text: "Diff since you looked", tooltip: "The new commits as one diff · d" })
     if (panel.detail.row.group === "mine") actions.push({ kind: "fix", text: "Fix", tooltip: "Fix with Claude Code, then ask before the push · f" })
     actions.push({ kind: "review", text: "Review", tooltip: "Review with Claude Code and publish on GitLab · c" })
+    if (panel.sessionState(panel.detail.row, "review")) actions.push({ kind: "continue-review", text: "Continue review", tooltip: "Open the review session where it stopped · C" })
+    if (panel.sessionState(panel.detail.row, "fix")) actions.push({ kind: "continue-fix", text: "Continue fix", tooltip: "Open the fix session where it stopped · F" })
     return actions
   }
 
@@ -118,11 +125,18 @@ KeyboardPanel {
     var hints = [["h", "back"], ["Enter", "open item"], ["o", "open"]]
     if (panel.detail.diffUrl) hints.push(["d", "diff"])
     if (panel.detail.row.group === "mine") hints.push(["f", "fix"])
-    return hints.concat([["c", "review"], ["x", "seen"]])
+    hints = hints.concat([["c", "review"], ["x", "seen"]])
+    if (panel.sessionState(panel.detail.row, "review")) hints.push(["C", "continue review"])
+    if (panel.sessionState(panel.detail.row, "fix")) hints.push(["F", "continue fix"])
+    return hints
   }
 
   function detailAction(kind) {
     if (!panel.detail) return
+    if (kind === "continue-review" || kind === "continue-fix") {
+      panel.continueRow(panel.detail.row, kind === "continue-fix" ? "fix" : "review")
+      return
+    }
     var key = panel.detailKey
     var done = kind === "open" ? panel.svc.openRow(key)
       : kind === "diff" ? panel.detail.diffUrl !== "" && panel.svc.openUrl(panel.detail.diffUrl)
@@ -180,13 +194,29 @@ KeyboardPanel {
     return panel.svc ? panel.svc.toneColor(tone) : panel.foreground
   }
 
-  // The pills of a row: its open sessions, then its statuses.
+  // "running" for a session in tmux, "saved" for a session that can resume, or "".
+  function sessionState(row, kind) {
+    var marker = kind + ":" + row.project + "!" + row.iid
+    if (!panel.svc) return ""
+    return panel.svc.sessions[marker] ? "running" : panel.svc.savedSessions[marker] ? "saved" : ""
+  }
+
+  // Opens the session of a row where it stopped, without a new prompt.
+  function continueRow(row, kind) {
+    if (!row || panel.sessionState(row, kind) === "") return
+    if (panel.svc.continueSession(row.key, kind)) panel.close()
+  }
+
+  // The pills of a row: its sessions, then its statuses. A click on a session pill continues the session.
   function pillsFor(row) {
     var pills = []
-    var key = row.project + "!" + row.iid
     if (row.hidden) pills.push({ text: "hidden", tone: "muted" })
-    if (panel.svc && panel.svc.sessions["review:" + key]) pills.push({ text: "reviewing", tone: "info" })
-    if (panel.svc && panel.svc.sessions["fix:" + key]) pills.push({ text: "fixing", tone: "info" })
+    var names = { review: ["reviewing", "review session"], fix: ["fixing", "fix session"] }
+    for (var kind in names) {
+      var state = panel.sessionState(row, kind)
+      if (state === "running") pills.push({ text: names[kind][0], tone: "info", session: kind })
+      else if (state === "saved") pills.push({ text: names[kind][1], tone: "muted", session: kind })
+    }
     return pills.concat(row.badges)
   }
 
@@ -202,6 +232,17 @@ KeyboardPanel {
 
   function toggleHidden(index) {
     if (panel.svc && index >= 0 && index < rows.length) panel.svc.setHidden(rows[index].key, !rows[index].hidden)
+  }
+
+  function closeSessions() {
+    if (!panel.svc) return
+    if (!panel.confirmClose) {
+      panel.confirmClose = true
+      confirmCloseTimer.restart()
+      return
+    }
+    panel.confirmClose = false
+    panel.svc.closeSessions()
   }
 
   function markAllSeen() {
@@ -231,6 +272,13 @@ KeyboardPanel {
 
   Item {
     anchors.fill: parent
+
+    Timer {
+      id: confirmCloseTimer
+      interval: 3000
+      repeat: false
+      onTriggered: panel.confirmClose = false
+    }
 
     Timer {
       interval: 60000
@@ -265,12 +313,16 @@ KeyboardPanel {
           else if (text === "d") panel.detailAction("diff")
           else if (text === "f") panel.detailAction("fix")
           else if (text === "c") panel.detailAction("review")
+          else if (text === "C") panel.detailAction("continue-review")
+          else if (text === "F") panel.detailAction("continue-fix")
           else if (text === "r") panel.refresh()
           return
         }
         if (text === "o") panel.openRow(panel.cursor)
         else if (text === "c") panel.startSession(panel.cursor, "review")
         else if (text === "f") panel.fixRow(panel.cursor)
+        else if (text === "C" && rows.length > 0) panel.continueRow(rows[panel.cursor], "review")
+        else if (text === "F" && rows.length > 0) panel.continueRow(rows[panel.cursor], "fix")
         else if (text === "r") panel.refresh()
         else if (text === "A") panel.markAllSeen()
         else if (text === "H") panel.toggleHidden(panel.cursor)
@@ -294,7 +346,7 @@ KeyboardPanel {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: Math.max(headerLabels.implicitHeight, markAllButton.implicitHeight)
+        height: Math.max(headerLabels.implicitHeight, headerButtons.implicitHeight)
 
         Column {
           id: headerLabels
@@ -323,18 +375,34 @@ KeyboardPanel {
           }
         }
 
-        Button {
-          id: markAllButton
+        Row {
+          id: headerButtons
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
-          visible: panel.svc && panel.svc.unreadCount > 0
-          text: "Mark all seen"
-          foreground: panel.foreground
-          fontFamily: Style.font.family
-          fontSize: Style.font.bodySmall
-          horizontalPadding: Style.spacing.lg
-          verticalPadding: Style.spacing.sm
-          onClicked: panel.markAllSeen()
+          spacing: Style.spacing.sm
+
+          Button {
+            visible: panel.runningSessions > 0
+            text: panel.confirmClose ? "Close " + panel.runningSessions + "?" : "Close sessions (" + panel.runningSessions + ")"
+            tooltipText: "Close the review and fix sessions in tmux. Saved sessions stay, and C or F continues them."
+            foreground: panel.confirmClose ? panel.toneColor("danger") : panel.foreground
+            fontFamily: Style.font.family
+            fontSize: Style.font.bodySmall
+            horizontalPadding: Style.spacing.lg
+            verticalPadding: Style.spacing.sm
+            onClicked: panel.closeSessions()
+          }
+
+          Button {
+            visible: panel.svc && panel.svc.unreadCount > 0
+            text: "Mark all seen"
+            foreground: panel.foreground
+            fontFamily: Style.font.family
+            fontSize: Style.font.bodySmall
+            horizontalPadding: Style.spacing.lg
+            verticalPadding: Style.spacing.sm
+            onClicked: panel.markAllSeen()
+          }
         }
       }
 
@@ -498,6 +566,13 @@ KeyboardPanel {
                         font.family: Style.font.family
                         font.pixelSize: Style.font.caption
                         font.bold: rowDelegate.modelData.unseen
+                      }
+
+                      MouseArea {
+                        anchors.fill: parent
+                        enabled: !!pill.modelData.session
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: panel.continueRow(rowDelegate.modelData, pill.modelData.session)
                       }
                     }
                   }

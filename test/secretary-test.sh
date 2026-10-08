@@ -359,6 +359,15 @@ assert(model.detail(model.markSeen(watched, reviewKey), reviewKey, {}).newCount 
 
 const sessions = model.parseSessions('review:group/app!5\nfix:group/app!5\nother:group/app!5\nreview:group/app!0\ngroup/app!5\n')
 assert(Object.keys(sessions).join() === 'review:group/app!5,fix:group/app!5', 'only valid session markers are read')
+const savedSessions = model.parseSavedSessions(JSON.stringify({
+  version: 1,
+  reviews: { 'group/app!5': { sessionId: 'a', sha: 'x', worktree: '/w' }, 'group/lib!3': { sha: 'x' } },
+  fixes: { 'group/app!5': { sessionId: 'b', sha: 'y', worktree: '/f' }, broken: { sessionId: 'c' } }
+}))
+assert(
+  Object.keys(savedSessions).join() === 'review:group/app!5,fix:group/app!5' && Object.keys(model.parseSavedSessions('not json')).length === 0,
+  'the saved review and fix sessions are read from the file of the launcher'
+)
 
 const unsafe = JSON.parse(raw)
 unsafe.mergeRequests[0].url = 'javascript:alert(1)'

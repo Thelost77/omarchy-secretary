@@ -25,7 +25,7 @@ Each row shows its statuses as colored labels. The colors come from the current 
 | Blue | The work continues. | reviewed, review started, 1/3 reviewed, reviewing, fixing |
 | Gray | Information of low priority | draft, no reviewers, hidden |
 
-A dot before the name shows an unseen row. The label "reviewing" or "fixing" shows an open session of the merge request.
+A dot before the name shows an unseen row. The label "reviewing" or "fixing" shows a session that runs in tmux. The label "review session" or "fix session" shows a saved session that you can continue.
 
 An icon before the time shows the state of the last pipeline:
 
@@ -63,7 +63,11 @@ omarchy plugin add https://github.com/Thelost77/omarchy-secretary.git --enable
 - `l` or the right arrow: open the [detail page](#detail-page) of the row
 - `c`: start the review session of the row
 - `f`: start the fix session of one of your merge requests
+- `C`: continue the review session where it stopped
+- `F`: continue the fix session where it stopped
 - The buttons of the row under the cursor: **Fix** (`f`), **Review** (`c`), **Seen** (`x`), and **›** (`l`). **Fix** shows only on your merge requests. **Seen** shows only on an unseen row.
+- A click on a session label: continue that session
+- **Close sessions** in the header: close all review and fix sessions in tmux. Click it two times. The saved sessions stay, so `C` and `F` continue them later.
 - `x`: mark the row as seen
 - `A`: mark all rows as seen
 - `H`: hide the row, or show a hidden row again
@@ -86,6 +90,8 @@ On the detail page, use these keys:
 - `d`: open the new commits as one diff. This key works only when NEW has a push.
 - `c`: start the review session
 - `f`: start the fix session of one of your merge requests
+- `C`: continue the review session where it stopped
+- `F`: continue the fix session where it stopped
 - `x`: mark the row as seen
 - `h`, the left arrow, `Esc`, or the **‹** button: go back to the list
 
@@ -106,9 +112,11 @@ You can also review one of your merge requests. GitLab ignores the review state 
 
 The publish step publishes all of your draft notes on the merge request. If you have draft notes that Claude Code did not write, Claude Code stops and asks you.
 
-The session continues when you close the terminal. To stop a review, stop Claude Code in the session or kill the tmux session.
+The session continues when you close the terminal. To stop a review, stop Claude Code in the session, or use **Close sessions** in the header to close all sessions of the plugin. Other tmux sessions stay open.
 
 The plugin saves the Claude Code session of each merge request. When you start the session again, Claude Code resumes it with the prompt `prompts/follow-up.md`. Claude Code then checks each earlier finding against the new replies and the new commits, reviews the new code, and publishes a new summary with the status of each earlier finding. Use this, for example, when a row shows "new commits" or replies.
+
+To continue a session where it stopped, use `C` for the review session or `F` for the fix session, or click its label. A running session opens in a terminal. A session that ended opens again with `claude --resume`. The plugin does not send a new prompt, fetch the merge request, or move the worktree.
 
 You can also start a review session from a merge request link:
 

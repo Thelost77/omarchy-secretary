@@ -545,6 +545,27 @@ function parseReviews(raw) {
   return result
 }
 
+// Reads the sessions that the review launcher saved. Like parseSessions, the
+// result maps each "<kind>:<project>!<iid>" to true.
+function parseSavedSessions(raw) {
+  var result = {}
+  try {
+    var saved = JSON.parse(String(raw || ""))
+    if (!saved || saved.version !== 1) return result
+    var sections = { review: saved.reviews, fix: saved.fixes }
+    for (var kind in sections) {
+      var entries = sections[kind]
+      if (!entries || typeof entries !== "object") continue
+      for (var key in entries) {
+        if (key.indexOf("!") > 0 && text(entries[key] && entries[key].sessionId, 64)) result[kind + ":" + key] = true
+      }
+    }
+  } catch (e) {
+    return {}
+  }
+  return result
+}
+
 // Reads the tmux markers of the open sessions, one "<kind>:<project>!<iid>" on each line.
 // The result maps each marker to true.
 function parseSessions(raw) {
@@ -758,6 +779,7 @@ if (typeof module !== "undefined") {
     parseInbox: parseInbox,
     parseReviews: parseReviews,
     parseSessions: parseSessions,
+    parseSavedSessions: parseSavedSessions,
     parsePalette: parsePalette,
     hasUnseenDanger: hasUnseenDanger,
     loadState: loadState,

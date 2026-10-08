@@ -139,6 +139,25 @@ rm "$HOME/.claude/projects/some-folder/$session.jsonl"
 [[ $(sed -n '6,7p' "$CLAUDE_LOG" | tr '\n' ' ') == "arg=--session-id arg=$session " ]] || fail "a run without a transcript starts the session again"
 pass "a run without a transcript starts the session again with the same ID"
 
+# The author pushes again. A continued session does not fetch it.
+git -C "$tmp/author" commit -q --allow-empty -m five
+git -C "$tmp/author" push -q origin HEAD:refs/merge-requests/5/head
+rm -f "$CLAUDE_LOG"
+if "$tool" run --continue group/app 5 </dev/null >/dev/null 2>&1 || [[ -e $CLAUDE_LOG ]]; then
+  fail "a continued session needs the transcript"
+fi
+if "$tool" run --continue group/lib 5 </dev/null >/dev/null 2>&1 || [[ -e $CLAUDE_LOG ]]; then
+  fail "a continued session needs a saved session"
+fi
+touch "$HOME/.claude/projects/some-folder/$session.jsonl"
+reviewed=$(git -C "$worktree" rev-parse HEAD)
+"$tool" run --continue group/app 5 </dev/null >/dev/null
+[[ $(wc -l <"$CLAUDE_LOG") == 7 && $(sed -n '2,7p' "$CLAUDE_LOG" | tr '\n' ' ') == "arg=--permission-mode arg=auto arg=--effort arg=xhigh arg=--resume arg=$session " ]] ||
+  fail "a continued session resumes without a prompt"
+grep -Fx "cwd=$worktree" "$CLAUDE_LOG" >/dev/null || fail "a continued session starts in the worktree"
+[[ $(git -C "$worktree" rev-parse HEAD) == "$reviewed" && $(review_of sha) == "$reviewed" ]] || fail "a continued session changes neither the worktree nor the saved head"
+pass "a continued session resumes the saved session without a prompt, a fetch, or a checkout"
+
 "$tool" run group/lib 5 </dev/null >/dev/null 2>&1
 [[ $(git -C "$state/repos/group/lib" config --get remote.origin.url) == "https://gitlab.example.com/group/lib.git" ]] || fail "run clones a project that has no clone"
 [[ $(git -C "$state/worktrees/group--lib--5" rev-parse HEAD) == "$(git -C "$tmp/remotes/group/lib.git" rev-parse refs/merge-requests/5/head)" ]] || fail "run uses its own clone"
@@ -243,6 +262,22 @@ grep -F "new-session -d -s fix-app-5 " "$TMUX_LOG" | grep -F "run \"\$@\" $tool 
 pass "open --fix starts a marked fix session"
 
 rm -f "$TMUX_STATE/session" "$TMUX_STATE/marker"
+terminals=$(wc -l <"$TERMINAL_LOG")
+if "$tool" open --continue group/app 5 >/dev/null 2>&1 || [[ $(wc -l <"$TERMINAL_LOG") != "$terminals" ]]; then
+  fail "open --continue needs a saved session"
+fi
+jq '.reviews["group/app!5"] = {sessionId: "saved", sha: "x", worktree: "/tmp"}' "$state/reviews.json" >"$state/reviews.json.tmp"
+mv "$state/reviews.json.tmp" "$state/reviews.json"
+"$tool" open --continue group/app 5
+grep -F "new-session -d -s mr-app-5 " "$TMUX_LOG" | tail -n 1 | grep -F "run \"\$@\" $tool --continue group/app 5" >/dev/null ||
+  fail "open --continue starts the saved session"
+[[ $(cat "$TMUX_STATE/marker") == "review:group/app!5" ]] || fail "open --continue marks the tmux session"
+sessions=$(grep -c "^new-session" "$TMUX_LOG")
+"$tool" open --continue group/app 5
+[[ $(grep -c "^new-session" "$TMUX_LOG") == "$sessions" ]] || fail "open --continue shows a running session"
+pass "open --continue shows a running session or starts the saved one"
+
+rm -f "$TMUX_STATE/session" "$TMUX_STATE/marker"
 "$tool" open group/my.app 7
 grep -F "new-session -d -s mr-my_app-7 " "$TMUX_LOG" >/dev/null || fail "the session name has no character that tmux rejects"
 pass "the session name has no character that tmux rejects"
@@ -282,3 +317,8 @@ grep -Fx "config=unset" "$CLAUDE_LOG" >/dev/null || fail "the tmux session does 
 "$tool" open group/app 5
 [[ $(tmux list-sessions -F '#{session_name}') == "mr-app-5" ]] || fail "a second open makes no second session"
 pass "open starts the review in a real tmux session"
+
+tmux new-session -d -s unrelated -- sleep 30
+"$tool" close
+[[ $(tmux list-sessions -F '#{session_name}') == "unrelated" ]] || fail "close closes only the sessions of the plugin"
+pass "close closes the sessions of the plugin and no other tmux session"
