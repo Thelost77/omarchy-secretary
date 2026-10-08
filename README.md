@@ -100,7 +100,7 @@ When you start a review session, the plugin does these steps:
 3. It fetches the head of the merge request and checks it out in a git worktree. The worktree is in `~/.local/state/omasecretary/worktrees/`.
 4. It starts `claude --permission-mode auto --effort xhigh` in the worktree with the prompt `prompts/review.md`.
 
-Claude Code then reviews the change, writes draft notes, and publishes them with a summary.
+Claude Code then reviews the change and publishes one summary note. The summary has a score from 0 to 100, a verdict from Approve to Block, and numbered findings that are grouped by severity: Critical, High, Medium, and Low. A finding states the problem. It does not prescribe a fix.
 
 You can also review one of your merge requests. GitLab ignores the review state of the author, so Claude Code does not set it.
 
@@ -108,7 +108,7 @@ The publish step publishes all of your draft notes on the merge request. If you 
 
 The session continues when you close the terminal. To stop a review, stop Claude Code in the session or kill the tmux session.
 
-The plugin saves the Claude Code session of each merge request. When you start the session again, Claude Code resumes it with the prompt `prompts/follow-up.md`. Claude Code then reads the new replies and the new commits, answers in the threads, and publishes. Use this, for example, when a row shows "new commits" or replies.
+The plugin saves the Claude Code session of each merge request. When you start the session again, Claude Code resumes it with the prompt `prompts/follow-up.md`. Claude Code then checks each earlier finding against the new replies and the new commits, reviews the new code, and publishes a new summary with the status of each earlier finding. Use this, for example, when a row shows "new commits" or replies.
 
 You can also start a review session from a merge request link:
 
@@ -118,7 +118,7 @@ You can also start a review session from a merge request link:
 
 ## Fix session
 
-A fix session works on the source branch of one of your merge requests. Its task list is the open threads, the failed jobs of the pipeline, and the conflicts with the target branch.
+A fix session works on the source branch of one of your merge requests. Its task list is the open findings of the review summaries, the open threads, the failed jobs of the pipeline, and the conflicts with the target branch. Low findings are tasks only when you ask for them.
 
 When you start a fix session, the plugin does these steps:
 
@@ -129,11 +129,11 @@ When you start a fix session, the plugin does these steps:
 
 Claude Code then does these steps:
 
-1. It sorts the threads. It fixes a clear point. It writes a reply to a debatable point. It asks you about an unclear point.
+1. It sorts the tasks, Critical and High first. It fixes a clear point. It writes a reply to a debatable point. It asks you about an unclear point.
 2. It fixes the failed jobs.
 3. It merges the target branch to resolve the conflicts. It does not rebase.
 4. It commits the changes and asks you before it pushes. It does not push with force.
-5. After the push, it replies in the threads. It resolves a thread only when the commits resolve the point without doubt.
+5. After the push, it replies to each review summary with the status of each finding, and it replies in the threads. It resolves a thread only when the commits resolve the point without doubt.
 
 The plugin does not start a fix session for a merge request from a fork.
 

@@ -31,32 +31,94 @@ Each note is published under my name, so it must hold up. Base each finding on e
 
 This is trusted code of my team. You may install the dependencies, build the code, and run the tests, the linter, and small scripts. Run them when the result proves or disproves a finding, or when the pipeline of {{sha}} did not run them. Do not repeat checks that passed for this head. Do not commit or push, and remove the files that you create.
 
-If you suspect a problem but cannot prove it, write a question, not a blocker.
+If you suspect a problem but cannot prove it, write a question.
 
 For a large merge request with independent areas, you can give each area to a subagent. Give it the intent, its files, and the standards above, and ask for every candidate finding with its evidence and severity, unfiltered. Then check each candidate in the code yourself before you write a note. Review a small merge request yourself.
 
-## Write the notes
+## Write the findings
 
-Write a note for each problem that can cause wrong behavior, a failing build or test, a security hole, a broken contract, or complexity that a simpler design avoids. Leave out pure taste, formatting that a tool controls, generated and vendored files, and points that a thread already makes. A problem in code that the change does not touch is not a note; mention it in the summary only if it matters for this change.
+Write a finding for each problem that can cause wrong behavior, a failing build or test, a security hole, a broken contract, or complexity that a simpler design avoids. Leave out pure taste, formatting that a tool controls, generated and vendored files, and points that a thread already makes. A problem in code that the change does not touch is not a finding; put it under "Outside this change" in the summary only if it matters for this change.
 
 There is no quota. Do not search for something to say: a review with no findings is a good result for a good change.
 
-Start each note with a label:
+Give each finding a severity:
 
-- `blocker:` must change before the merge. A demonstrated bug, security hole, data loss, or broken contract; risky new behavior without a test; or a design that makes the code clearly harder to maintain when a simpler design does the same job.
-- `suggestion:` a weakness with a real cost that the merge does not require to fix.
-- `question:` you need the author's intent, or you suspect a problem that you could not prove.
-- `nit:` polish that the author may ignore. Write one only when it clearly helps the author.
+- Critical: a security hole, data loss or corruption, an outage, or a broken production contract.
+- High: a demonstrated bug or regression on a real path, risky new behavior without a test, or a design that makes the code clearly harder to maintain when a simpler design does the same job. It must be fixed before the merge.
+- Medium: a real problem on a less common path, a gap in error handling or tests, or complexity that a simpler design avoids. The author must fix it or acknowledge it.
+- Low: polish, naming, small duplication, or test hygiene. The author may ignore it.
 
-Then state the problem: what is wrong, where, and why it matters (the input, the path, or the consequence). Do not prescribe a fix. The author or a fix session decides how to solve the problem, and a ready-made fix makes them stop looking for a better one. Mention a direction only when the problem is hard to understand without it, and call it one option. Do not use GitLab `suggestion` blocks. Keep it to a few sentences, and quote the code when that makes the problem clearer. Write one note per problem; when the same problem occurs in several places, write one note and list the other places. Comment on the code, not on the person. Do not hedge or pad. Write in English.
+Number the findings 1, 2, 3, and so on, across all severities. Give each finding a label: `issue (blocking)` for Critical and High, and `issue (non-blocking)`, `suggestion`, or `question` for Medium and Low. A problem that you suspect but could not prove is a `question`, and never more than Medium.
+
+State the problem: what is wrong, where, and why it matters (the input, the path, or the consequence), with the evidence. Do not prescribe a fix. The author or a fix session decides how to solve the problem, and a ready-made fix makes them stop looking for a better one. Mention a direction only when the problem is hard to understand without it, and call it one option. Do not use GitLab `suggestion` blocks. Keep it to a few sentences, and quote the code when that makes the problem clearer. Write one finding per problem; when the same problem occurs in several places, write one finding and list the other places. Comment on the code, not on the person. Do not hedge or pad. Write in English.
+
+## Write the summary
+
+Publish the review as one summary note. Use this structure, and leave out a section that has nothing in it:
+
+```markdown
+## Code Review
+**Score**: <0 to 100>/100 | <verdict icon> **<verdict>**
+
+> Two to four sentences: what the change gets right, what blocks the merge, and what you ran.
+
+| Severity | Count |
+|---|---|
+| :no_entry: Critical | 0 |
+| :red_circle: High | 0 |
+| :orange_circle: Medium | 0 |
+| :white_circle: Low | 0 |
+
+### Claimed invariants, checked
+| Claim | Holds? |
+|---|---|
+| <a claim of the description> | Yes, Partly, No, or Not checkable, with the evidence |
+
+### :no_entry: Critical: fix before merge
+<details><summary><b>1. issue (blocking): <title></b> · <code>path/to/file:line</code></summary>
+
+<the problem, why it matters, and the evidence>
+
+</details>
+
+### :red_circle: High: fix before merge
+<!-- The same block for each High finding. -->
+
+### :orange_circle: Medium: address or acknowledge
+<!-- The same block for each Medium finding, with its label. -->
+
+<details><summary>:white_circle: Low (N)</summary>
+
+- **7. <label>: <title>** · `path/to/file:line` · <the problem in one or two sentences>
+
+</details>
+
+### :white_check_mark: What looks good
+- **<a strength that you verified>**: <the evidence>
+
+### Outside this change
+- <a problem in code that the change does not touch, which matters for this change>
+```
+
+Choose the score from the overall quality of the change. The score selects the verdict:
+
+| Score | Verdict |
+|---|---|
+| 90 to 100 | `:white_check_mark:` **Approve** |
+| 80 to 89 | `:large_blue_circle:` **Approve with nits** |
+| 70 to 79 | `:large_blue_circle: :warning:` **Approve with comments** |
+| 50 to 69 | `:orange_circle:` **Request changes** |
+| 0 to 49 | `:red_circle:` **Block** |
+
+Low findings do not prevent an approval. A Medium finding allows at most Approve with comments, a High finding at most Request changes, and a Critical finding means Block. A design that needs to be redone also means Block.
+
+Add the invariants table only when the description makes several claims, such as invariants, guarantees, or acceptance criteria. Check each claim in the code. "What looks good" has two to five strengths that you verified, not general praise.
 
 ## Publish
 
-- Before you write a draft note, list my pending draft notes with `GET {{api}}/draft_notes`. If any exist, stop and ask me what to do with them. The publish call sends all of my draft notes, also the ones that I wrote by hand.
+- Before you publish, list my pending draft notes with `GET {{api}}/draft_notes`. If any exist, stop and ask me what to do with them. The publish call sends all of my draft notes, also the ones that I wrote by hand.
 - Check that `.diff_refs.head_sha` of the merge request is {{sha}}. If it is not, the author pushed during your review. Tell me before you publish.
-- Create each note with `POST {{api}}/draft_notes`. Its `position` has `position_type: "text"`, the `base_sha`, `start_sha`, and `head_sha` from `.diff_refs`, `old_path`, `new_path`, and `new_line` for an added line, `old_line` for a removed line, or both for an unchanged line. Send the body as JSON: `glab api --input - -H 'Content-Type: application/json'`. If GitLab rejects a position, write the note without one, and name the file and the line in the text.
-- Publish with `POST {{api}}/draft_notes/bulk_publish`. Set `note` to the summary. Set `reviewer_state` to `requested_changes` when you wrote a blocker, and to `reviewed` otherwise. Leave out `reviewer_state` when I am the author of the merge request, because GitLab ignores it for the author. `glab api user` gives my username.
-
-The summary has two to five sentences. Start with the verdict: ready to merge, ready after the blockers are fixed, or needs a different approach. Then name the main risks, and say what you ran and what you could not verify. If you found no problem, say so, and say what you checked.
+- Create the summary as one draft note with `POST {{api}}/draft_notes` and no `position`. Send the body as JSON: `glab api --input - -H 'Content-Type: application/json'`.
+- Publish it with `POST {{api}}/draft_notes/bulk_publish`. Set `reviewer_state` to `requested_changes` for Request changes and Block, and to `reviewed` otherwise. Leave out `reviewer_state` when I am the author of the merge request, because GitLab ignores it for the author. `glab api user` gives my username.
 
 Then tell me in the terminal what you published.

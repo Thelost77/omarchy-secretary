@@ -1,36 +1,38 @@
-There is new activity on merge request !{{iid}} of {{project}} since your review. Answer it, review the new code, then publish.
+There is new activity on merge request !{{iid}} of {{project}} since your review. Check it, review the new code, then publish a new summary.
 
 - Merge request: {{url}}
 - At your last review, the head was {{previous}}. The head is now {{sha}}, and this folder is a checkout of it.
 - Target branch: `origin/{{target}}`
 - API path: `{{api}}`
 
-Use the standards and the publish rules of your first review.
+Use the standards, the summary structure, and the publish rules of your first review.
 
 ## Read
 
 1. Make sure that you published your review in this conversation. If you did not, do your first review on the current head, and then stop.
 2. List my pending draft notes with `GET {{api}}/draft_notes`. If one exists that you did not write in this conversation, stop and ask me what to do with it. The publish call sends all of my draft notes.
-3. Read all threads again (`{{api}}/discussions`, paginated). Your threads are the ones that you started in this conversation. Your notes carry my username, and so do my own notes and the replies of my fix sessions. So find new activity by note ID and time, not by author: each note after your last note in a thread is new.
+3. Read all notes and threads again (`{{api}}/discussions`, paginated), especially the replies in the discussion of your summary. My own notes and the replies of my fix sessions carry my username, like your notes. So find new activity by note ID and time, not by author.
 4. Read the new code with `git diff {{previous}} HEAD`. If the author rebased or merged the target branch, this diff also contains changes from the target branch. Then compare the old and the new merge request diff instead; `git range-diff` helps.
 
-## Your threads
+## Earlier findings
 
-For each of your threads with a new note, or with new code at its position, check the code itself, not only the reply:
+Check each open finding of your earlier summaries in the code itself, not only in the replies, and give it a status:
 
-- Fixed: reply in one sentence, name the commit, and resolve the thread. If it is already resolved, write nothing.
-- Partly fixed, or the fix adds a problem: say exactly what is still missing.
-- The author disagrees: judge the reasons on their merits; the author often knows the code better. If the reasons hold, say so and resolve the thread. If they do not, answer with new evidence, not the same argument again. For a suggestion or a nit, accept the author's decision and resolve the thread.
-- Your question is answered: resolve the thread if the answer removes the concern. If the answer shows a bug, say so and start the reply with `blocker:`.
-- Resolved, but not fixed: reply and say what is missing.
-- No new note and no change at its position: write nothing.
+- Fixed: the code resolves the problem. Name the commit.
+- Still open: say what is still missing. A fix that adds a problem is still open.
+- Accepted: the author declined a suggestion or a Low finding. Accept that.
+- Withdrawn: the author showed with reasons that the finding was wrong. Judge the reasons on their merits; the author often knows the code better. If the reasons do not hold, keep the finding open, and answer with new evidence, not the same argument again.
+
+If a reply asks you a question, answer it in the status of its finding.
 
 ## New code
 
-Review the new commits with the standards of your first review. Do not add suggestions or nits on code that you reviewed before and that did not change. If you missed a real blocker in your first review, report it now, and say that it is new.
+Review the new commits with the standards of your first review. Do not add Medium or Low findings on code that you reviewed before and that did not change. If you missed a Critical or High problem in your first review, report it now, and say that it is new. Number new findings after the earlier ones, and keep the numbers of the earlier findings.
 
 ## Publish
 
-Publish all draft notes in one `bulk_publish` call. The summary has one to three sentences: the verdict first, then which blockers are fixed and which are still open. Set `reviewer_state` to `requested_changes` while one of your blockers is open, and to `reviewed` otherwise. Leave it out when I am the author. If no thread needs an answer and the new code has no finding, publish only the summary, and only when your verdict changed, so that the reviewer state is current.
+Publish one new summary note in the structure of your first review, for the current state. Add a section `### Earlier findings` after the severity table: a table with the number, the title, and the status of each earlier finding, with one sentence for each status other than Fixed. The severity table and the finding sections show only the findings that are still open and the new findings. Choose the score and the verdict as in your first review.
+
+If nothing changed since your last summary, publish nothing.
 
 Then tell me in the terminal what you published, or why you published nothing.
