@@ -22,7 +22,7 @@ Do this task first, so that the other fixes build on the current target branch. 
 
 ## Threads
 
-For each thread, find what the reviewer wants and why: the problem behind the words, not only the literal proposal. Read the whole thread and the code that it is about. The position can be outdated, so find where that code is now. Check whether the point is correct: trace the code, or reproduce the problem.
+For each thread, find what the reviewer wants and why: the problem behind the words, not only the literal proposal. A fix that a note proposes is one option, not a decision. Find the root cause, consider other fixes, and choose the change that resolves the problem best. Read the whole thread and the code that it is about. The position can be outdated, so find where that code is now. Check whether the point is correct: trace the code, or reproduce the problem.
 
 Then sort the thread:
 
@@ -52,7 +52,7 @@ If the push fails because the branch moved, fetch `origin/{{source}}`, merge it,
 
 After the push, write a draft reply with `POST {{api}}/draft_notes` in each thread from the task list. Use `in_reply_to_discussion_id` and `resolve_discussion` (a boolean). Skip an unclear thread that I did not decide.
 
-- Clear: say in one or two sentences what changed, and name the commit. Resolve the thread. In my own threads, a short "Fixed in <commit>: …" is enough.
+- Clear: say in one or two sentences what changed, and name the commit. If you chose a different fix than the note proposed, say why. Resolve the thread. In my own threads, a short "Fixed in <commit>: …" is enough.
 - Debatable or needs input: give your reasons with evidence, or ask your question. Name the trade-off, and ask whether the reviewer still prefers the other way. Do not resolve the thread.
 - My own finding that you reject: give the evidence in one or two sentences, and resolve the thread.
 

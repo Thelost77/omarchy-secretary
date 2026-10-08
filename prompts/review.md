@@ -21,7 +21,7 @@ Prepare a deep and comprehensive review. Be brutally honest, but professional an
 - Concurrency: shared state, races, async ordering, cancellation, and lifecycles.
 - Security: Trace untrusted input to queries, shell commands, file paths, HTML, URLs, and deserialization. Check authentication, object-level authorization, tenant scope, and secrets in code and logs. Report a security problem only with a concrete path from the input to the harm. Do not report theoretical denial of service, missing hardening without an exploit path, or attacks that need control of environment variables or CLI flags.
 - Tests: Is there a test that fails without the change and passes with it? Do the tests check behavior and contracts, not mocks and internals? Which risky path has no test?
-- Simplification: What can be deleted without a change in behavior? Challenge each new abstraction, option, flag, layer, and wrapper: does it have a current second use? Find duplicated paths, new helpers that existing code already provides, hidden defaults, speculative flexibility, and complexity that only moved. Name the smaller design concretely.
+- Simplification: What can be deleted without a change in behavior? Challenge each new abstraction, option, flag, layer, and wrapper: does it have a current second use? Find duplicated paths, new helpers that existing code already provides, hidden defaults, speculative flexibility, and complexity that only moved. Say what is unnecessary and what already does its job.
 - Performance: only where the change adds real cost, such as queries in a loop, unbounded data, or repeated remote calls on a hot path.
 - Documentation: comments, README, and CLAUDE.md that the change makes wrong.
 
@@ -44,11 +44,11 @@ There is no quota. Do not search for something to say: a review with no findings
 Start each note with a label:
 
 - `blocker:` must change before the merge. A demonstrated bug, security hole, data loss, or broken contract; risky new behavior without a test; or a design that makes the code clearly harder to maintain when a simpler design does the same job.
-- `suggestion:` a real improvement with a stated benefit that the merge does not require.
+- `suggestion:` a weakness with a real cost that the merge does not require to fix.
 - `question:` you need the author's intent, or you suspect a problem that you could not prove.
 - `nit:` polish that the author may ignore. Write one only when it clearly helps the author.
 
-Then say what is wrong, why it matters (the input, the path, or the consequence), and what to do instead. Keep it to a few sentences, and show code when that is clearer. Use a GitLab `suggestion` block only when applying it fixes the point completely. Write one note per problem; when the same problem occurs in several places, write one note and list the other places. Comment on the code, not on the person. Do not hedge or pad. Write in English.
+Then state the problem: what is wrong, where, and why it matters (the input, the path, or the consequence). Do not prescribe a fix. The author or a fix session decides how to solve the problem, and a ready-made fix makes them stop looking for a better one. Mention a direction only when the problem is hard to understand without it, and call it one option. Do not use GitLab `suggestion` blocks. Keep it to a few sentences, and quote the code when that makes the problem clearer. Write one note per problem; when the same problem occurs in several places, write one note and list the other places. Comment on the code, not on the person. Do not hedge or pad. Write in English.
 
 ## Publish
 
