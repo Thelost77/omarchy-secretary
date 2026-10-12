@@ -147,7 +147,9 @@ The plugin does not start a fix session for a merge request from a fork.
 
 ## Settings
 
-The plugin has one setting, the environment variable `OMASECRETARY_PROJECTS`. Set it to a folder that contains your clones. The plugin then makes the worktree from the clone whose `origin` is the project. Export the variable in your login profile, for example in `~/.bash_profile`:
+The plugin has two settings. Each setting is an environment variable. Export the variables in your login profile, for example in `~/.bash_profile`.
+
+Set `OMASECRETARY_PROJECTS` to a folder that contains your clones. The plugin then makes the worktree from the clone whose `origin` is the project.
 
 ```bash
 export OMASECRETARY_PROJECTS="$HOME/Projects"
@@ -161,6 +163,14 @@ A session has these effects on a clone of yours:
 - `git worktree list` shows the worktree of the session.
 
 The plugin does not change your branches or your working tree.
+
+Set `OMASECRETARY_IGNORED_USERS` to the GitLab usernames of the users whose comments you do not want to read. Put a space between the usernames. An example of such a user is a scanner that writes a comment after each pipeline.
+
+```bash
+export OMASECRETARY_IGNORED_USERS="security-scanner dependency-bot"
+```
+
+The plugin ignores the comments of these users. These comments do not make a row unseen, and the detail page does not show them. The plugin continues to show the system notes, the approvals, and the reviews of these users.
 
 ## Data
 

@@ -95,15 +95,23 @@ page "$api,$lib" >"$tmp/fixtures/reviewer.json"
   printf '{"notes":[%s]},' "$(rich 123 bob 10:25 true 'mentioned in merge request !99')"
   printf '{"notes":[%s]}]\n' "$(rich 124 bob 10:26 true 'approved this merge request')"
 } >"$tmp/fixtures/group%2Fapi!12.json"
-printf '[{"notes":[%s]}]\n' "$(note 201 ann 09:00)" >"$tmp/fixtures/group%2Fapp!7.json"
+printf '[{"notes":[%s]},{"notes":[%s]}]\n' "$(note 201 ann 09:00)" "$(note 210 scanner 09:10)" >"$tmp/fixtures/group%2Fapp!7.json"
 printf '[]\n' >"$tmp/fixtures/group%2Flib!3.json"
 
 run_helper() {
-  GLAB_FIXTURES="$tmp/fixtures" PATH="$tmp/bin:$PATH" "$helper"
+  # [ignored users]
+  GLAB_FIXTURES="$tmp/fixtures" PATH="$tmp/bin:$PATH" OMASECRETARY_IGNORED_USERS="${1:-}" "$helper"
 }
 
 run_helper >"$tmp/inbox.json" || fail "helper reads the merge requests and their threads"
 pass "helper reads the merge requests and their threads"
+
+authors() {
+  jq -r '[.mergeRequests[].threads[].notes[].author] | unique | join(" ")'
+}
+[[ $(authors <"$tmp/inbox.json") == "ann bob me scanner" && $(run_helper "other scanner" | authors) == "ann bob me" ]] ||
+  fail "helper drops the comments of the ignored users"
+pass "helper drops the comments of the ignored users"
 
 mv "$tmp/fixtures/group%2Flib!3.json" "$tmp/lib.json"
 if output=$(run_helper 2>/dev/null) || [[ -n $output ]]; then
