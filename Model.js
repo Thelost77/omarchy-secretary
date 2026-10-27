@@ -221,6 +221,7 @@ function row(mr, group, values) {
     iid: mr.iid,
     title: mr.title,
     author: mr.author,
+    sourceBranch: mr.sourceBranch,
     draft: mr.draft,
     url: values.url || mr.url,
     status: texts.join(" · "),
@@ -372,6 +373,22 @@ function rows(state, showHidden, reviews) {
     if (a.timeMs !== b.timeMs) return b.timeMs - a.timeMs
     return a.key.localeCompare(b.key)
   })
+}
+
+// The rows where each word of the query is in the project, the title,
+// the source branch, or the author. Case does not matter. An empty query keeps all rows.
+function filterRows(values, query) {
+  var all = list(values)
+  var terms = String(query || "").toLowerCase().split(/\s+/)
+  var result = []
+  for (var i = 0; i < all.length; i++) {
+    // The line breaks stop a word from matching across two fields.
+    var fields = [all[i].project, all[i].title, all[i].sourceBranch, all[i].author].join("\n").toLowerCase()
+    var match = true
+    for (var j = 0; j < terms.length; j++) if (terms[j] && fields.indexOf(terms[j]) === -1) match = false
+    if (match) result.push(all[i])
+  }
+  return result
 }
 
 // The rows of "after" that are unseen and were not unseen in "before".
@@ -787,6 +804,7 @@ if (typeof module !== "undefined") {
     emptyState: emptyState,
     reconcile: reconcile,
     rows: rows,
+    filterRows: filterRows,
     rowByKey: rowByKey,
     detail: detail,
     freshRows: freshRows,

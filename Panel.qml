@@ -9,7 +9,9 @@ KeyboardPanel {
 
   property var host: null
   readonly property var svc: host ? host.svc : null
-  readonly property var rows: svc ? Model.rows(svc.state, panel.showHidden, svc.reviews) : []
+  readonly property var allRows: svc ? Model.rows(svc.state, panel.showHidden, svc.reviews) : []
+  // A change of the query filters the rows again, but does not build them again.
+  readonly property var rows: Model.filterRows(panel.allRows, panel.query)
   readonly property color foreground: Color.popups.text
   readonly property var groupTitles: ({
     review: "TO REVIEW",
@@ -17,6 +19,7 @@ KeyboardPanel {
   })
   readonly property var keyHints: [
     ["Enter", "open"],
+    ["/", "filter"],
     ["l", "details"],
     ["c", "review"],
     ["f", "fix"],
@@ -38,6 +41,9 @@ KeyboardPanel {
   property string cursorKey: ""
   property bool cursorActive: false
   property bool showHidden: false
+  // The text of the filter field. filtering is true while the field has the keys.
+  property string query: ""
+  property bool filtering: false
   property real now: Date.now()
   readonly property int runningSessions: svc ? Object.keys(svc.sessions).length : 0
   // The first click on "Close sessions" asks; a second click within 3 seconds closes them.
@@ -59,6 +65,7 @@ KeyboardPanel {
       return
     }
     panel.showHidden = false
+    filterField.clear()
     panel.confirmClose = false
     panel.setCursor(0)
     panel.cursorActive = false
@@ -249,6 +256,21 @@ KeyboardPanel {
     if (panel.svc) panel.svc.markAllSeen()
   }
 
+  function openFilter() {
+    panel.filtering = true
+    Qt.callLater(function() { filterField.forceActiveFocus() })
+  }
+
+  // The keys go back to the list. The filter stays.
+  function leaveFilter() {
+    keyCatcher.forceActiveFocus()
+  }
+
+  function clearFilter() {
+    filterField.clear()
+    panel.leaveFilter()
+  }
+
   function refresh() {
     if (panel.svc) panel.svc.refresh()
   }
@@ -256,7 +278,7 @@ KeyboardPanel {
   function emptyText() {
     if (!panel.svc || !panel.svc.state.initialized)
       return panel.svc && panel.svc.lastError !== "" ? "No saved rows" : "Reading GitLab…"
-    return "Nothing waits for you"
+    return panel.query !== "" ? "No merge request matches" : "Nothing waits for you"
   }
 
   function footerText() {
@@ -303,7 +325,7 @@ KeyboardPanel {
       }
       onActivateRequested: panel.detail ? panel.openDetailItem(panel.detailCursor) : panel.openRow(panel.cursor)
       onDeleteRequested: panel.detail ? panel.svc.markSeen(panel.detailKey) : panel.markSeen(panel.cursor)
-      onCloseRequested: panel.detail ? panel.closeDetail() : panel.close()
+      onCloseRequested: panel.detail ? panel.closeDetail() : panel.query !== "" ? panel.clearFilter() : panel.close()
       onTabRequested: function(direction) {
         if (panel.host) panel.host.switchPanel(direction)
       }
@@ -327,6 +349,7 @@ KeyboardPanel {
         else if (text === "A") panel.markAllSeen()
         else if (text === "H") panel.toggleHidden(panel.cursor)
         else if (text === "a") panel.showHidden = !panel.showHidden
+        else if (text === "/") panel.openFilter()
       }
     }
 
@@ -413,9 +436,43 @@ KeyboardPanel {
         foreground: panel.foreground
       }
 
+      TextField {
+        id: filterField
+        anchors.top: headerRule.bottom
+        anchors.topMargin: Style.spacing.sm
+        anchors.left: parent.left
+        anchors.right: parent.right
+        visible: panel.filtering || panel.query !== ""
+        placeholderText: "Project, title, branch, or author"
+        foreground: panel.foreground
+        onActiveFocusChanged: panel.filtering = activeFocus
+        // A new query puts the cursor on the first match.
+        onTextChanged: {
+          panel.query = text
+          if (text === "") return
+          panel.setCursor(0)
+          panel.cursorActive = rows.length > 0
+          rowList.positionViewAtBeginning()
+        }
+        // The letters go into the query, so only the arrow keys move the cursor.
+        Keys.onPressed: function(event) {
+          if (event.key === Qt.Key_Down || event.key === Qt.Key_Up) {
+            panel.moveCursor(event.key === Qt.Key_Down ? 1 : -1)
+            event.accepted = true
+          } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            panel.cursorActive = rows.length > 0
+            panel.leaveFilter()
+            event.accepted = true
+          } else if (event.key === Qt.Key_Escape) {
+            panel.clearFilter()
+            event.accepted = true
+          }
+        }
+      }
+
       ListView {
         id: rowList
-        anchors.top: headerRule.bottom
+        anchors.top: filterField.visible ? filterField.bottom : headerRule.bottom
         anchors.bottom: footerRule.top
         anchors.topMargin: Style.spacing.sm
         anchors.bottomMargin: Style.spacing.sm

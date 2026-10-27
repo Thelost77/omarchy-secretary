@@ -60,6 +60,8 @@ omarchy plugin add https://github.com/Thelost77/omarchy-secretary.git --enable
 - Middle click on the bar icon: refresh
 - `j`/`k` or the arrow keys: move the cursor
 - `Enter`, `Space`, `o`, or a click on a row: open the row in the browser
+- `/`: filter the rows. Each word of the filter must be in the project, the title, the source branch, or the author.
+- In the filter: the up and down arrows move the cursor, `Enter` keeps the filter and goes back to the list, and `Esc` clears the filter.
 - `l` or the right arrow: open the [detail page](#detail-page) of the row
 - `c`: start the review session of the row
 - `f`: start the fix session of one of your merge requests
@@ -74,7 +76,7 @@ omarchy plugin add https://github.com/Thelost77/omarchy-secretary.git --enable
 - `a`: show the hidden rows, or stop showing them
 - `r`: refresh
 - `Tab`: go to the next bar panel
-- `Esc`: close the panel
+- `Esc`: clear the filter, or close the panel if no filter is active
 
 ## Detail page
 

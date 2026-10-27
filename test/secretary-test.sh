@@ -382,4 +382,19 @@ unsafe.mergeRequests[0].url = 'javascript:alert(1)'
 assert(model.parseInbox(JSON.stringify(unsafe)).mergeRequests.length === 2, 'a merge request without an HTTPS link is dropped')
 assert(model.parseInbox('') === null && model.parseInbox('{"version":2}') === null, 'an invalid helper result is rejected')
 assert(model.relativeTime(1000, 61000) === '1m', 'relative timestamps use compact labels')
+
+assert(model.rows(state).every(r => r.sourceBranch === 'feature'), 'each row has the source branch')
+const listed = [
+  { key: 'a', project: 'group/payments-api', title: 'Add retry to webhooks', sourceBranch: 'feature/PAY-12-retry', author: 'Ann Example' },
+  { key: 'b', project: 'group/web', title: 'Fix login', sourceBranch: 'fix/login', author: 'Bob Builder' },
+  { key: 'c', project: 'tools/cli', title: 'Bump deps', sourceBranch: 'chore/deps', author: 'Ann Example' }
+]
+const matching = query => model.filterRows(listed, query).map(r => r.key).join()
+assert(matching('') === 'a,b,c' && matching('  ') === 'a,b,c', 'an empty query keeps all rows in their order')
+assert(
+  matching('PAYMENTS') === 'a' && matching('login') === 'b' && matching('chore/') === 'c' && matching('ann') === 'a,c',
+  'the filter matches the project, the title, the source branch, or the author, without regard to case'
+)
+assert(matching('ann  retry') === 'a' && matching('retry bob') === '', 'each word of the query must match')
+assert(matching('webhooksfeature') === '' && matching('nothing') === '', 'a word does not match across two fields')
 JS
