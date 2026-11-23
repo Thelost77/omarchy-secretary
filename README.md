@@ -67,11 +67,11 @@ While the panel is open, the rows keep their order. A row that comes while the p
 - `/`: filter the rows. Each word of the filter must be in the project, the title, the source branch, the author, or the status.
 - In the filter: the up and down arrows move the cursor, `Enter` keeps the filter and goes back to the list, and `Esc` clears the filter.
 - `l` or the right arrow: open the [detail page](#detail-page) of the row
-- `c`: start the review session of the row. When the row has a saved review session, the button and the key hint show **Re-review**. Claude Code then checks the earlier findings and publishes a new summary.
+- `c`: start the review session of the row. When the row has a saved review session, or a review session that waits, the button and the key hint show **Re-review**. Claude Code then checks the earlier findings and publishes a new summary. While Claude Code works in the review session, they show **Open review**, and `c` only shows the session.
 - `f`: start the fix session of one of your merge requests
 - `C`: continue the review session where it stopped
 - `F`: continue the fix session where it stopped
-- The buttons of the row under the cursor, next to its name: **Fix** (`f`), **Review** or **Re-review** (`c`), **Seen** (`x`), and **›** (`l`). **Fix** shows only on your merge requests. **Seen** shows only on an unseen row.
+- The buttons of the row under the cursor, next to its name: **Fix** (`f`), **Review**, **Re-review**, or **Open review** (`c`), **Seen** (`x`), and **›** (`l`). **Fix** shows only on your merge requests. **Seen** shows only on an unseen row.
 - A click on a session label: continue that session
 - **Close sessions** in the header: close all review and fix sessions in tmux. Click it two times. The saved sessions stay, so `C` and `F` continue them later.
 - `x`: mark the row as seen
@@ -123,7 +123,7 @@ The session continues when you close the terminal. To stop a review, stop Claude
 
 Hooks of Claude Code record in the tmux session whether Claude Code works or waits for you. The panel shows this state in the label of the row. If the plugin cannot open a session, a desktop notification shows the error.
 
-The plugin saves the Claude Code session of each merge request. When you start the session again, Claude Code resumes it with the prompt `prompts/follow-up.md`. Claude Code then checks each earlier finding against the new replies and the new commits, reviews the new code, and publishes a new summary with the status of each earlier finding. Use this, for example, when a row shows "new commits" or replies.
+The plugin saves the Claude Code session of each merge request. When you start the session again, Claude Code resumes it with the prompt `prompts/follow-up.md`. If the tmux session is open and Claude Code waits, the plugin starts Claude Code again in the same tmux session. A terminal that shows the session stays open. Claude Code then checks each earlier finding against the new replies and the new commits, reviews the new code, and publishes a new summary with the status of each earlier finding. Use this, for example, when a row shows "new commits" or replies.
 
 To continue a session where it stopped, use `C` for the review session or `F` for the fix session, or click its label. A running session opens in a terminal. A session that ended opens again with `claude --resume`. The plugin does not send a new prompt, fetch the merge request, or move the worktree.
 

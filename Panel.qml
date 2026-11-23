@@ -219,11 +219,15 @@ KeyboardPanel {
     if (index >= 0 && index < rows.length && rows[index].group === "mine") panel.startSession(index, "fix")
   }
 
-  // The review action of a row. A saved review session makes the next review a
-  // follow-up review, which publishes a new summary.
+  // The review action of a row. A saved review session, or one that waits, makes the
+  // next review a follow-up review, which publishes a new summary. A review session
+  // where Claude Code works only opens.
   function reviewAction(row) {
-    if (panel.sessionState(row, "review") === "saved")
+    var state = panel.sessionState(row, "review")
+    if (state === "saved" || state === "waiting")
       return { text: "Re-review", hint: "re-review", tooltip: "Check the earlier findings and publish a new summary on GitLab · c" }
+    if (state === "running")
+      return { text: "Open review", hint: "open review", tooltip: "Show the review session, where Claude Code works · c" }
     return { text: "Review", hint: "review", tooltip: "Review with Claude Code and publish on GitLab · c" }
   }
 

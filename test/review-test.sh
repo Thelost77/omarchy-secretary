@@ -274,6 +274,19 @@ pass "open starts a marked tmux session from a merge request link and shows it"
 [[ $(grep -c "^new-session" "$TMUX_LOG") == 1 && $(wc -l <"$TERMINAL_LOG") == 2 ]] || fail "a second open shows the same session"
 pass "a second open shows the same session"
 
+printf 'working\n' >"$TMUX_STATE/state"
+"$tool" open group/app 5
+"$tool" open --continue group/app 5
+[[ $(grep -c "^respawn-pane" "$TMUX_LOG") == 0 ]] || fail "open does not restart a review that works, and --continue does not restart a session"
+printf 'waiting\n' >"$TMUX_STATE/state"
+"$tool" open group/app 5
+grep -F "respawn-pane -k -t =mr-app-5: -c $HOME -- env -u CLAUDE_CONFIG_DIR bash -lc" "$TMUX_LOG" |
+  grep -F "run \"\$@\" $tool group/app 5" >/dev/null || fail "open restarts a review that waits with the run command"
+[[ $(grep -c "^new-session" "$TMUX_LOG") == 1 && $(tail -n 1 "$TERMINAL_LOG") == "tmux attach-session -t =mr-app-5" ]] ||
+  fail "a restarted review stays in the same tmux session"
+rm -f "$TMUX_STATE/state"
+pass "open restarts a review session that waits, in the same tmux session"
+
 rm "$TMUX_STATE/marker"
 "$tool" open group/app 5
 [[ $(grep -c "^kill-session" "$TMUX_LOG") == 1 && $(grep -c "^new-session" "$TMUX_LOG") == 2 ]] || fail "open replaces a restored session that has no marker"
@@ -376,6 +389,17 @@ grep -Fx "config=unset" "$CLAUDE_LOG" >/dev/null || fail "the tmux session does 
 "$tool" open group/app 5
 [[ $(tmux list-sessions -F '#{session_name}') == "mr-app-5" ]] || fail "a second open makes no second session"
 pass "open starts the review in a real tmux session"
+
+tmux set-option -t "=mr-app-5:" @omasecretary-state waiting
+rm -f "$CLAUDE_LOG"
+"$tool" open group/app 5
+for _ in $(seq 50); do
+  [[ -s $CLAUDE_LOG ]] && break
+  sleep 0.1
+done
+[[ -s $CLAUDE_LOG && $(tmux list-sessions -F '#{session_name}') == "mr-app-5" ]] || fail "open restarts a waiting review in the same tmux session"
+[[ $(tmux show-options -t "=mr-app-5:" -qv @omasecretary-state) == working ]] || fail "a restarted review works"
+pass "open restarts a waiting review in the same real tmux session"
 
 tmux new-session -d -s unrelated -- sleep 30
 "$tool" close
