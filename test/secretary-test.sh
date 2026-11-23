@@ -364,9 +364,20 @@ page = model.detail(refresh(watched, busy), reviewKey, {})
 assert(page.items[0].isNew && page.items[2].url.endsWith('#note_132') && ordered(page), 'the new items come before a newer note of the user')
 assert(page.diffUrl.endsWith(`/merge_requests/12/diffs?diff_id=9&start_sha=${'f'.repeat(40)}`), 'the diff since the last look starts at the first new push')
 assert(model.detail(model.markSeen(watched, reviewKey), reviewKey, {}).newCount === 0, 'a seen row has no new items')
+assert(
+  model.detail(model.markSeen(watched, reviewKey), reviewKey, {}, model.seenSince(watched, reviewKey)).newCount === 2,
+  'the new items stay new while the detail page is open'
+)
+const itemKeys = page.items.map(i => i.key)
+assert(itemKeys.every(Boolean) && new Set(itemKeys).size === itemKeys.length, 'each item of the detail page has its own key')
 
 const sessions = model.parseSessions('review:group/app!5\nfix:group/app!5\nother:group/app!5\nreview:group/app!0\ngroup/app!5\n')
 assert(Object.keys(sessions).join() === 'review:group/app!5,fix:group/app!5', 'only valid session markers are read')
+const states = model.parseSessions('review:group/app!5\tworking\nfix:group/app!5\twaiting\nreview:group/lib!3\t\n')
+assert(
+  states['review:group/app!5'] === 'working' && states['fix:group/app!5'] === 'waiting' && states['review:group/lib!3'] === 'working',
+  'a session waits only when its hooks recorded that Claude Code waits'
+)
 const savedSessions = model.parseSavedSessions(JSON.stringify({
   version: 1,
   reviews: { 'group/app!5': { sessionId: 'a', sha: 'x', worktree: '/w' }, 'group/lib!3': { sha: 'x' } },
@@ -397,4 +408,50 @@ assert(
 )
 assert(matching('ann  retry') === 'a' && matching('retry bob') === '', 'each word of the query must match')
 assert(matching('webhooksfeature') === '' && matching('nothing') === '', 'a word does not match across two fields')
+const failing = [listed[0], Object.assign({}, listed[1], { status: 'pipeline failed · 1 comment' })]
+assert(
+  model.filterRows(failing, 'failed').map(r => r.key).join() === 'b' && model.filterRows(failing, 'web comment').map(r => r.key).join() === 'b',
+  'the filter matches the status'
+)
+
+// The panel keeps the order of the rows while it is open.
+const keysOf = rows => rows.map(r => r.key).join()
+const asked = clone(base)
+asked.mergeRequests.push(copyOf(find(base, 'group/api!12'), 'group/web', 5))
+const opened = refresh(model.reconcile(model.emptyState(), base, 42), asked)
+const shown = model.rows(opened).map(r => r.key)
+const looked = model.markSeen(opened, 'review:group/web!5')
+assert(
+  keysOf(model.rows(looked)) !== shown.join() && keysOf(model.keepOrder(model.rows(looked), shown)) === shown.join(),
+  'a seen row keeps its place while the panel is open'
+)
+const grown = clone(asked)
+grown.mergeRequests.push(copyOf(find(base, 'group/api!12'), 'group/zzz', 9), copyOf(find(base, 'group/app!7'), 'group/new', 1))
+assert(
+  keysOf(model.keepOrder(model.rows(refresh(looked, grown)), shown))
+    === 'review:group/zzz!9,review:group/web!5,review:group/api!12,mine:group/new!1,mine:group/app!7,mine:group/lib!3',
+  'a row that comes while the panel is open is first in its group'
+)
+
+const listModel = keys => {
+  const items = keys.map(key => ({ key }))
+  return {
+    items,
+    ops: [],
+    get count() { return items.length },
+    get(i) { return items[i] },
+    insert(i, value) { this.ops.push('insert'); items.splice(i, 0, value) },
+    move(from, to, n) { this.ops.push('move'); items.splice(to, 0, ...items.splice(from, n)) },
+    remove(i, n) { this.ops.push('remove'); items.splice(i, n === undefined ? 1 : n) }
+  }
+}
+const synced = listModel(['a', 'b', 'c'])
+const [a, b] = synced.items
+model.syncKeys(synced, [{ key: 'a' }, { key: 'b' }, { key: 'c' }])
+assert(synced.ops.length === 0, 'an unchanged list does not change the list model')
+model.syncKeys(synced, [{ key: 'd' }, { key: 'b' }, { key: 'a' }])
+assert(
+  synced.items.map(i => i.key).join() === 'd,b,a' && synced.items[1] === b && synced.items[2] === a,
+  'the list model inserts, moves, and removes entries by key and keeps the other entries'
+)
 JS

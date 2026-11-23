@@ -21,7 +21,7 @@ Item {
   property string reviewPath: ""
   property var state: Model.emptyState()
   property var reviews: ({})
-  // The markers of the open tmux sessions, for example "review:group/app!5".
+  // The open tmux sessions: each marker, for example "review:group/app!5", maps to "working" or "waiting".
   property var sessions: ({})
   // The sessions that the review launcher saved, in the same form.
   property var savedSessions: ({})
@@ -99,21 +99,24 @@ Item {
     root.apply(Model.setHidden(root.state, key, hide))
   }
 
-  // A click on a notification with a link opens the link.
-  function notify(title, body, url) {
+  // A click on the notification runs onClick, a command as a list of arguments.
+  function notify(title, body, onClick) {
     var command = ["omarchy-notification-send", "--app-name", "OmaSecretary", title, body]
-    if (url) command = command.concat(["--exec", "omarchy-launch-browser", url])
+    if (onClick) command = command.concat(["--exec"], onClick)
     Quickshell.execDetached(command)
   }
 
-  // Tells the user about the rows that a refresh made unseen.
+  // Tells the user about the rows that a refresh made unseen. A click on the
+  // notification of a row opens the link and marks the row as seen. A click on
+  // the summary opens the panel.
   function announce(fresh) {
     if (fresh.length > root.maxNotifications) {
-      root.notify("OmaSecretary", fresh.length + " merge requests have news")
+      root.notify("OmaSecretary", fresh.length + " merge requests have news", ["omarchy-shell", "-q", "shell", "summon", root.moduleId, ""])
       return
     }
     for (var i = 0; i < fresh.length; i++)
-      root.notify(fresh[i].name + " !" + fresh[i].iid, fresh[i].status + " · " + fresh[i].title, fresh[i].url)
+      root.notify(fresh[i].name + " !" + fresh[i].iid, fresh[i].status + " · " + fresh[i].title,
+        ["omarchy-shell", "-q", root.moduleId, "openNotification", fresh[i].key, fresh[i].url])
   }
 
   // Reads again the data that other programs change: the review launcher, tmux, and the theme.
@@ -168,6 +171,32 @@ Item {
     return true
   }
 
+  // The link opens also when a refresh removed the row.
+  IpcHandler {
+    target: root.moduleId
+
+    function openNotification(key: string, url: string): void {
+      root.markSeen(key)
+      root.openUrl(url)
+    }
+
+    // The hooks of a session call this when Claude Code waits and no terminal shows
+    // the session. marker is "<kind>:<project>!<iid>". A click on the notification
+    // shows the session.
+    function sessionWaits(marker: string): void {
+      if (!Model.parseSessions(marker)[marker]) return
+      sessionsCheck.restart()
+      var kind = marker.slice(0, marker.indexOf(":"))
+      var project = marker.slice(kind.length + 1, marker.lastIndexOf("!"))
+      var iid = marker.slice(marker.lastIndexOf("!") + 1)
+      var mr = Model.mergeRequestForRow(root.state.inbox, marker)
+      var onClick = root.reviewPath === "" ? null
+        : [root.reviewPath, "open", "--continue"].concat(kind === "fix" ? ["--fix"] : [], [project, iid])
+      root.notify(project.slice(project.lastIndexOf("/") + 1) + " !" + iid,
+        (kind === "fix" ? "Fix" : "Review") + " waits for you" + (mr ? " · " + mr.title : ""), onClick)
+    }
+  }
+
   Timer {
     id: bootstrapTimer
     interval: 0
@@ -211,7 +240,7 @@ Item {
   Process {
     id: sessionsProc
     running: false
-    command: ["tmux", "list-sessions", "-F", "#{@omasecretary}"]
+    command: ["tmux", "list-sessions", "-F", "#{@omasecretary}\t#{@omasecretary-state}"]
 
     stdout: StdioCollector {
       waitForEnd: true

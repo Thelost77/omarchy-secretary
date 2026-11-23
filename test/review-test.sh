@@ -20,7 +20,7 @@ trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin" "$tmp/home" "$tmp/projects" "$tmp/remotes/group" "$tmp/tmux"
 
 export HOME="$tmp/home"
-unset CLAUDE_CONFIG_DIR
+unset CLAUDE_CONFIG_DIR TMUX_PANE
 export XDG_STATE_HOME="$tmp/state"
 export OMASECRETARY_PROJECTS="$tmp/projects"
 state="$tmp/state/omasecretary"
@@ -56,10 +56,24 @@ cat >"$tmp/bin/tmux" <<'SH'
 printf '%s\n' "$*" >>"$TMUX_LOG"
 case "$1" in
 has-session) [[ -e $TMUX_STATE/session ]] ;;
-show-options) cat "$TMUX_STATE/marker" 2>/dev/null || true ;;
+show-options)
+  if [[ ${*: -1} == @omasecretary-state ]]; then
+    cat "$TMUX_STATE/state" 2>/dev/null || true
+  else
+    cat "$TMUX_STATE/marker" 2>/dev/null || true
+  fi
+  ;;
 kill-session) rm -f "$TMUX_STATE/session" "$TMUX_STATE/marker" ;;
 new-session) touch "$TMUX_STATE/session" ;;
-set-option) printf '%s\n' "${@: -1}" >"$TMUX_STATE/marker" ;;
+set-option)
+  if [[ ${*: -2:1} == @omasecretary-state ]]; then
+    printf '%s\n' "${@: -1}" >"$TMUX_STATE/state"
+  else
+    printf '%s\n' "${@: -1}" >"$TMUX_STATE/marker"
+  fi
+  ;;
+# A file "attached" holds the number of terminals that show the session.
+display-message) cat "$TMUX_STATE/attached" 2>/dev/null || echo 0 ;;
 esac
 SH
 
@@ -67,10 +81,21 @@ cat >"$tmp/bin/omarchy-launch-terminal" <<'SH'
 #!/bin/bash
 printf '%s\n' "$*" >>"$TERMINAL_LOG"
 SH
+
+cat >"$tmp/bin/omarchy-shell" <<'SH'
+#!/bin/bash
+printf '%s\n' "$*" >>"$IPC_LOG"
+SH
+
+cat >"$tmp/bin/omarchy-notification-send" <<'SH'
+#!/bin/bash
+printf '%s\n' "$*" >>"$NOTIFY_LOG"
+SH
 chmod +x "$tmp/bin/"*
 
 export GLAB_STATE="$tmp/glab-state" GLAB_FORK="$tmp/glab-fork" CLAUDE_LOG="$tmp/claude.log"
 export TMUX_STATE="$tmp/tmux" TMUX_LOG="$tmp/tmux.log" TERMINAL_LOG="$tmp/terminal.log"
+export IPC_LOG="$tmp/ipc.log" NOTIFY_LOG="$tmp/notify.log"
 export PATH="$tmp/bin:$PATH"
 printf 'opened' >"$GLAB_STATE"
 
@@ -115,6 +140,16 @@ if grep -F '{{' "$CLAUDE_LOG" >/dev/null; then
 fi
 pass "the first run saves the session and starts Claude Code with the review prompt"
 
+[[ $(sed -n '8p' "$CLAUDE_LOG") == "arg=--settings" ]] || fail "run passes settings to Claude Code"
+settings=$(sed -n '9p' "$CLAUDE_LOG")
+jq -e --arg tool "$tool" '
+  .hooks.UserPromptSubmit[0].hooks[0].command == "\($tool) state working"
+  and .hooks.PostToolUse[0].matcher == "*" and .hooks.PostToolUse[0].hooks[0].command == "\($tool) state working"
+  and .hooks.Stop[0].hooks[0].command == "\($tool) state waiting"
+  and .hooks.Notification[0].hooks[0].command == "\($tool) state waiting"' <<<"${settings#arg=}" >/dev/null ||
+  fail "the settings have hooks that record the state of the session"
+pass "run starts Claude Code with hooks that record whether it works or waits"
+
 # The author adds a commit, and Claude Code has a transcript of the session.
 git clone -q "$tmp/remotes/group/app.git" "$tmp/author"
 git -C "$tmp/author" fetch -q origin refs/merge-requests/5/head
@@ -152,8 +187,8 @@ fi
 touch "$HOME/.claude/projects/some-folder/$session.jsonl"
 reviewed=$(git -C "$worktree" rev-parse HEAD)
 "$tool" run --continue group/app 5 </dev/null >/dev/null
-[[ $(wc -l <"$CLAUDE_LOG") == 7 && $(sed -n '2,7p' "$CLAUDE_LOG" | tr '\n' ' ') == "arg=--permission-mode arg=auto arg=--effort arg=xhigh arg=--resume arg=$session " ]] ||
-  fail "a continued session resumes without a prompt"
+[[ $(wc -l <"$CLAUDE_LOG") == 9 && $(sed -n '2,8p' "$CLAUDE_LOG" | tr '\n' ' ') == "arg=--permission-mode arg=auto arg=--effort arg=xhigh arg=--resume arg=$session arg=--settings " ]] ||
+  fail "a continued session resumes with the hooks and without a prompt"
 grep -Fx "cwd=$worktree" "$CLAUDE_LOG" >/dev/null || fail "a continued session starts in the worktree"
 [[ $(git -C "$worktree" rev-parse HEAD) == "$reviewed" && $(review_of sha) == "$reviewed" ]] || fail "a continued session changes neither the worktree nor the saved head"
 pass "a continued session resumes the saved session without a prompt, a fetch, or a checkout"
@@ -246,6 +281,7 @@ pass "open replaces a restored session that has no marker"
 
 printf 'review:other/app!5\n' >"$TMUX_STATE/marker"
 terminals=$(wc -l <"$TERMINAL_LOG")
+: >"$NOTIFY_LOG"
 for args in "group/app 5" "group/app 0" "app 5" "group/app;id 5" "https://gitlab.example.com/group/app"; do
   # shellcheck disable=SC2086
   if "$tool" open $args >/dev/null 2>&1; then
@@ -253,6 +289,8 @@ for args in "group/app 5" "group/app 0" "app 5" "group/app;id 5" "https://gitlab
   fi
 done
 [[ $(wc -l <"$TERMINAL_LOG") == "$terminals" ]] || fail "a rejected open shows no terminal"
+[[ $(wc -l <"$NOTIFY_LOG") == 5 ]] && grep -Fx -- "--app-name OmaSecretary OmaSecretary the tmux session mr-app-5 belongs to review:other/app!5" "$NOTIFY_LOG" >/dev/null ||
+  fail "a rejected open shows the error in a notification"
 pass "open rejects a session of another merge request and invalid arguments"
 
 rm -f "$TMUX_STATE/session" "$TMUX_STATE/marker"
@@ -281,6 +319,25 @@ rm -f "$TMUX_STATE/session" "$TMUX_STATE/marker"
 "$tool" open group/my.app 7
 grep -F "new-session -d -s mr-my_app-7 " "$TMUX_LOG" >/dev/null || fail "the session name has no character that tmux rejects"
 pass "the session name has no character that tmux rejects"
+
+printf 'fix:group/app!5\n' >"$TMUX_STATE/marker"
+TMUX_PANE=%1 "$tool" state working
+[[ $(cat "$TMUX_STATE/state") == working && ! -s $IPC_LOG ]] || fail "state working records the state"
+printf '1\n' >"$TMUX_STATE/attached"
+TMUX_PANE=%1 "$tool" state waiting
+[[ $(cat "$TMUX_STATE/state") == waiting && ! -s $IPC_LOG ]] || fail "a waiting session that a terminal shows does not tell the panel"
+printf '0\n' >"$TMUX_STATE/attached"
+TMUX_PANE=%1 "$tool" state waiting
+[[ ! -s $IPC_LOG ]] || fail "a session that already waits does not tell the panel again"
+TMUX_PANE=%1 "$tool" state working
+TMUX_PANE=%1 "$tool" state waiting
+TMUX_PANE=%1 "$tool" state waiting
+[[ $(cat "$IPC_LOG") == "-q io.github.thelost77.omasecretary sessionWaits fix:group/app!5" ]] ||
+  fail "a session that starts to wait without a terminal tells the panel one time"
+"$tool" state waiting && TMUX_PANE=%1 "$tool" state other || fail "state always exits 0"
+[[ $(cat "$TMUX_STATE/state") == waiting ]] || fail "state ignores an unknown state"
+rm -f "$TMUX_STATE/marker" "$TMUX_STATE/state" "$TMUX_STATE/attached"
+pass "state records whether Claude Code works or waits, and tells the panel when nobody sees the session"
 
 # The same flow with the real tmux, on its own server and without the user's config.
 rm "$tmp/bin/tmux"
@@ -314,6 +371,8 @@ grep -Fx "cwd=$worktree" "$CLAUDE_LOG" >/dev/null || fail "the tmux session star
 grep -Fx "config=unset" "$CLAUDE_LOG" >/dev/null || fail "the tmux session does not inherit the Claude Code profile of the caller"
 [[ $(tmux show-options -t "=mr-app-5:" -qv @omasecretary) == "review:group/app!5" ]] || fail "the tmux session has the marker"
 [[ $(tmux list-sessions -F '#{@omasecretary}') == "review:group/app!5" ]] || fail "list-sessions shows the marker"
+[[ $(tmux list-sessions -F $'#{@omasecretary}\t#{@omasecretary-state}') == $'review:group/app!5\tworking' ]] ||
+  fail "list-sessions shows that Claude Code works"
 "$tool" open group/app 5
 [[ $(tmux list-sessions -F '#{session_name}') == "mr-app-5" ]] || fail "a second open makes no second session"
 pass "open starts the review in a real tmux session"

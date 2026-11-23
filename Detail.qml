@@ -12,6 +12,8 @@ Item {
   property var panel: null
   readonly property var detail: panel ? panel.detail : null
   readonly property var row: detail ? detail.row : null
+  // The items by key. It keeps earlier items, so a delegate has data until the model removes it.
+  property var itemMap: ({})
   readonly property color foreground: panel ? panel.foreground : Color.popups.text
   readonly property var kindGlyphs: ({
     reply: "",
@@ -41,6 +43,19 @@ Item {
     resolved: "success",
     event: "muted"
   })
+
+  onDetailChanged: page.syncItems()
+  Component.onCompleted: page.syncItems()
+
+  // Updates the items in place, so the list keeps its delegates and its scroll position.
+  function syncItems() {
+    var items = page.detail ? page.detail.items : []
+    var map = {}
+    for (var known in page.itemMap) map[known] = page.itemMap[known]
+    for (var i = 0; i < items.length; i++) map[items[i].key] = items[i]
+    page.itemMap = map
+    Model.syncKeys(itemModel, items)
+  }
 
   function who(author) {
     return page.detail && author === page.detail.me ? "you" : author
@@ -209,6 +224,10 @@ Item {
     foreground: page.foreground
   }
 
+  ListModel {
+    id: itemModel
+  }
+
   ListView {
     id: itemList
     anchors.top: headerRule.bottom
@@ -219,16 +238,18 @@ Item {
     anchors.right: parent.right
     clip: true
     boundsBehavior: Flickable.StopAtBounds
-    model: page.detail ? page.detail.items : []
+    model: itemModel
     currentIndex: page.panel ? page.panel.detailCursor : 0
     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
     delegate: Item {
       id: itemDelegate
-      required property var modelData
+      required property string key
       required property int index
+      readonly property var modelData: page.itemMap[key]
+      readonly property var previous: index > 0 && page.detail ? page.detail.items[index - 1] : null
 
-      readonly property bool startsSection: index === 0 || page.detail.items[index - 1].isNew !== modelData.isNew
+      readonly property bool startsSection: !previous || previous.isNew !== modelData.isNew
       readonly property color tint: page.panel.toneColor(page.kindTones[modelData.kind] || "muted")
 
       width: itemList.width
@@ -378,7 +399,9 @@ Item {
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
           acceptedButtons: Qt.LeftButton
-          onEntered: page.panel.setDetailCursor(itemDelegate.index)
+          onPositionChanged: function(mouse) {
+            if (page.panel.pointerMoved(itemSurface, mouse)) page.panel.setDetailCursor(itemDelegate.index)
+          }
           onClicked: page.panel.openDetailItem(itemDelegate.index)
         }
       }

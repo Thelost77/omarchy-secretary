@@ -11,7 +11,7 @@ The panel has two groups:
 
 A reply is in a thread where you wrote a note and another person wrote the last note. A row with replies opens the newest reply.
 
-The bar shows the number of unseen rows. The number is red when an unseen row reports a failed pipeline, a conflict, or requested changes. A desktop notification tells you about each row that becomes unseen. Click the notification to open the merge request.
+The bar shows the number of unseen rows. The number is red when an unseen row reports a failed pipeline, a conflict, or requested changes. A desktop notification tells you about each row that becomes unseen. A click on the notification opens the merge request and marks its row as seen. When more than three rows become unseen at the same time, one notification tells you the number. A click on it opens the panel.
 
 ## Statuses
 
@@ -20,12 +20,14 @@ Each row shows its statuses as colored labels. The colors come from the current 
 | Color | Meaning | Statuses |
 | --- | --- | --- |
 | Red | Something blocks the merge request. | pipeline failed, conflicts, changes requested, requested changes |
-| Yellow | The merge request waits for you. | to review, review re-requested, new commits, replies, comments |
+| Yellow | The merge request waits for you. | to review, review re-requested, new commits, replies, comments, review waits, fix waits |
 | Green | The merge request is approved. | approved, ready to merge |
 | Blue | The work continues. | reviewed, review started, 1/3 reviewed, reviewing, fixing |
-| Gray | Information of low priority | draft, no reviewers, hidden |
+| Gray | Information of low priority | draft, no reviewers, removed |
 
-A dot before the name shows an unseen row. The label "reviewing" or "fixing" shows a session that runs in tmux. The label "review session" or "fix session" shows a saved session that you can continue.
+A dot before the name shows an unseen row. The label "reviewing" or "fixing" shows a session where Claude Code works. The label "review waits" or "fix waits" shows a session where Claude Code stopped and waits for you. For example, it published a review, or it asks a question. The label "review session" or "fix session" shows a saved session that you can continue.
+
+When a session starts to wait and no terminal shows it, a desktop notification tells you. A click on the notification shows the session in a terminal.
 
 An icon before the time shows the state of the last pipeline:
 
@@ -56,24 +58,27 @@ omarchy plugin add https://github.com/Thelost77/omarchy-secretary.git --enable
 
 ## Controls
 
+While the panel is open, the rows keep their order. A row that comes while the panel is open goes to the top of its group. The panel sorts the rows again when it opens. The cursor starts on the first row. The key hints at the bottom of the panel show the keys for the row under the cursor.
+
 - Click on the bar icon: open or close the panel
 - Middle click on the bar icon: refresh
 - `j`/`k` or the arrow keys: move the cursor
 - `Enter`, `Space`, `o`, or a click on a row: open the row in the browser
-- `/`: filter the rows. Each word of the filter must be in the project, the title, the source branch, or the author.
+- `/`: filter the rows. Each word of the filter must be in the project, the title, the source branch, the author, or the status.
 - In the filter: the up and down arrows move the cursor, `Enter` keeps the filter and goes back to the list, and `Esc` clears the filter.
 - `l` or the right arrow: open the [detail page](#detail-page) of the row
-- `c`: start the review session of the row
+- `c`: start the review session of the row. When the row has a saved review session, the button and the key hint show **Re-review**. Claude Code then checks the earlier findings and publishes a new summary.
 - `f`: start the fix session of one of your merge requests
 - `C`: continue the review session where it stopped
 - `F`: continue the fix session where it stopped
-- The buttons of the row under the cursor: **Fix** (`f`), **Review** (`c`), **Seen** (`x`), and **›** (`l`). **Fix** shows only on your merge requests. **Seen** shows only on an unseen row.
+- The buttons of the row under the cursor, next to its name: **Fix** (`f`), **Review** or **Re-review** (`c`), **Seen** (`x`), and **›** (`l`). **Fix** shows only on your merge requests. **Seen** shows only on an unseen row.
 - A click on a session label: continue that session
 - **Close sessions** in the header: close all review and fix sessions in tmux. Click it two times. The saved sessions stay, so `C` and `F` continue them later.
 - `x`: mark the row as seen
 - `A`: mark all rows as seen
-- `H`: hide the row, or show a hidden row again
-- `a`: show the hidden rows, or stop showing them
+- `n`: go to the next unseen row
+- `H`: remove the row from the list, or put a removed row back. A removed row shows no news, adds nothing to the count on the bar, and sends no notification.
+- `a`: show the removed rows, or stop showing them
 - `r`: refresh
 - `Tab`: go to the next bar panel
 - `Esc`: clear the filter, or close the panel if no filter is active
@@ -82,12 +87,12 @@ omarchy plugin add https://github.com/Thelost77/omarchy-secretary.git --enable
 
 The detail page shows one merge request: its title, branches, reviewers, statuses, and activity. The activity has the comments, the pushes, the changes of commented lines, the approvals, and the review requests.
 
-The items that came after you last saw the row are under NEW. The other items are under EARLIER. When you leave the page, the plugin marks the row as seen.
+The items that came after you last saw the row are under NEW. They stay under NEW while the page is open. The other items are under EARLIER. When you leave the page, the plugin marks the row as seen.
 
 On the detail page, use these keys:
 
 - `j`/`k` or the arrow keys: move the cursor
-- `Enter`, `l`, or a click on an item: open the item in the browser. A push opens its diff. A changed line opens the line in the diff.
+- `Enter` or a click on an item: open the item in the browser. A push opens its diff. A changed line opens the line in the diff.
 - `o`: open the merge request in the browser
 - `d`: open the new commits as one diff. This key works only when NEW has a push.
 - `c`: start the review session
@@ -115,6 +120,8 @@ You can also review one of your merge requests. GitLab ignores the review state 
 The publish step publishes all of your draft notes on the merge request. If you have draft notes that Claude Code did not write, Claude Code stops and asks you.
 
 The session continues when you close the terminal. To stop a review, stop Claude Code in the session, or use **Close sessions** in the header to close all sessions of the plugin. Other tmux sessions stay open.
+
+Hooks of Claude Code record in the tmux session whether Claude Code works or waits for you. The panel shows this state in the label of the row. If the plugin cannot open a session, a desktop notification shows the error.
 
 The plugin saves the Claude Code session of each merge request. When you start the session again, Claude Code resumes it with the prompt `prompts/follow-up.md`. Claude Code then checks each earlier finding against the new replies and the new commits, reviews the new code, and publishes a new summary with the status of each earlier finding. Use this, for example, when a row shows "new commits" or replies.
 

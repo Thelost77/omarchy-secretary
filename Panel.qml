@@ -11,24 +11,13 @@ KeyboardPanel {
   readonly property var svc: host ? host.svc : null
   readonly property var allRows: svc ? Model.rows(svc.state, panel.showHidden, svc.reviews) : []
   // A change of the query filters the rows again, but does not build them again.
-  readonly property var rows: Model.filterRows(panel.allRows, panel.query)
+  // The rows keep the order of the last open, so an action does not move them.
+  readonly property var rows: Model.filterRows(Model.keepOrder(panel.allRows, panel.order), panel.query)
   readonly property color foreground: Color.popups.text
   readonly property var groupTitles: ({
     review: "TO REVIEW",
     mine: "MY MERGE REQUESTS"
   })
-  readonly property var keyHints: [
-    ["Enter", "open"],
-    ["/", "filter"],
-    ["l", "details"],
-    ["c", "review"],
-    ["f", "fix"],
-    ["x", "seen"],
-    ["C/F", "continue"],
-    ["H", "hide"],
-    ["a", "hidden"],
-    ["r", "refresh"]
-  ]
   readonly property var pipelineGlyphs: ({
     success: "\uf00c",
     danger: "\uf00d",
@@ -36,6 +25,10 @@ KeyboardPanel {
     muted: "\uf05e"
   })
 
+  // The keys of the rows when the panel opened, with the hidden rows.
+  property var order: []
+  // The rows by key. It keeps earlier rows, so a delegate has data until the model removes it.
+  property var rowMap: ({})
   property int cursor: 0
   // The cursor stays on its row when a refresh or a key changes the order of the rows.
   property string cursorKey: ""
@@ -51,9 +44,13 @@ KeyboardPanel {
 
   // The detail page shows one merge request. Leaving the page marks its row as seen.
   property string detailKey: ""
+  // The time of the last look at the row. It stays while the page is open, so the new items stay new.
+  property real detailSince: 0
   property int detailCursor: 0
+  // The cursor stays on its item when a refresh adds items.
+  property string detailCursorKey: ""
   property bool detailCursorActive: false
-  readonly property var detail: svc && detailKey !== "" ? Model.detail(svc.state, detailKey, svc.reviews) : null
+  readonly property var detail: svc && detailKey !== "" ? Model.detail(svc.state, detailKey, svc.reviews, detailSince) : null
 
   contentWidth: fittedContentWidth(Style.space(480))
   contentHeight: cappedContentHeight(Style.space(520))
@@ -67,30 +64,48 @@ KeyboardPanel {
     panel.showHidden = false
     filterField.clear()
     panel.confirmClose = false
+    panel.order = panel.svc ? Model.rows(panel.svc.state, true, panel.svc.reviews).map(function(row) { return row.key }) : []
     panel.setCursor(0)
-    panel.cursorActive = false
+    panel.cursorActive = true
+    panel.resetPointer()
     panel.now = Date.now()
     rowList.positionViewAtBeginning()
     if (panel.svc) panel.svc.reloadLocal()
   }
 
+  Component.onCompleted: panel.syncRows()
+
   onRowsChanged: {
+    panel.syncRows()
+    panel.resetPointer()
+    var before = panel.cursor
     var index = -1
     for (var i = 0; i < rows.length; i++) if (rows[i].key === panel.cursorKey) index = i
     if (index >= 0) panel.cursor = index
     else panel.setCursor(Math.max(0, Math.min(panel.cursor, rows.length - 1)))
-    Qt.callLater(function() {
+    // The view moves only when the row of the cursor moved, so a refresh keeps a scrolled view.
+    if (panel.cursor !== before) Qt.callLater(function() {
       if (panel.cursorActive) rowList.positionViewAtIndex(panel.cursor, ListView.Contain)
     })
   }
 
-  // The merge request left the inbox, for example because it was merged.
-  onDetailChanged: if (panel.detailKey !== "" && !panel.detail) panel.detailKey = ""
+  onDetailChanged: {
+    // The merge request left the inbox, for example because it was merged.
+    if (panel.detailKey !== "" && !panel.detail) panel.detailKey = ""
+    if (!panel.detail) return
+    var items = panel.detail.items
+    var index = -1
+    for (var i = 0; i < items.length; i++) if (items[i].key === panel.detailCursorKey) index = i
+    if (index < 0) index = Math.max(0, Math.min(panel.detailCursor, items.length - 1))
+    panel.detailCursor = index
+    panel.detailCursorKey = index < items.length ? items[index].key : ""
+  }
 
   function openDetail(index) {
     if (!panel.svc || index < 0 || index >= rows.length) return
+    panel.detailSince = Model.seenSince(panel.svc.state, rows[index].key)
     panel.detailKey = rows[index].key
-    panel.detailCursor = 0
+    panel.setDetailCursor(0)
     panel.detailCursorActive = !!panel.detail && panel.detail.items.length > 0
   }
 
@@ -101,13 +116,17 @@ KeyboardPanel {
   }
 
   function setDetailCursor(index) {
+    var items = panel.detail ? panel.detail.items : []
     panel.detailCursor = index
+    panel.detailCursorKey = index >= 0 && index < items.length ? items[index].key : ""
     panel.detailCursorActive = true
   }
 
   function moveDetailCursor(delta) {
     var count = panel.detail ? panel.detail.items.length : 0
-    if (count > 0) panel.setDetailCursor(Math.max(0, Math.min(count - 1, panel.detailCursor + delta)))
+    if (count === 0) return
+    panel.resetPointer()
+    panel.setDetailCursor(Math.max(0, Math.min(count - 1, panel.detailCursor + delta)))
   }
 
   function openDetailItem(index) {
@@ -121,7 +140,8 @@ KeyboardPanel {
     var actions = [{ kind: "open", text: "Open", tooltip: "Open the merge request in the browser · o" }]
     if (panel.detail.diffUrl) actions.push({ kind: "diff", text: "Diff since you looked", tooltip: "The new commits as one diff · d" })
     if (panel.detail.row.group === "mine") actions.push({ kind: "fix", text: "Fix", tooltip: "Fix with Claude Code, then ask before the push · f" })
-    actions.push({ kind: "review", text: "Review", tooltip: "Review with Claude Code and publish on GitLab · c" })
+    var review = panel.reviewAction(panel.detail.row)
+    actions.push({ kind: "review", text: review.text, tooltip: review.tooltip })
     if (panel.sessionState(panel.detail.row, "review")) actions.push({ kind: "continue-review", text: "Continue review", tooltip: "Open the review session where it stopped · C" })
     if (panel.sessionState(panel.detail.row, "fix")) actions.push({ kind: "continue-fix", text: "Continue fix", tooltip: "Open the fix session where it stopped · F" })
     return actions
@@ -132,7 +152,7 @@ KeyboardPanel {
     var hints = [["h", "back"], ["Enter", "open item"], ["o", "open"]]
     if (panel.detail.diffUrl) hints.push(["d", "diff"])
     if (panel.detail.row.group === "mine") hints.push(["f", "fix"])
-    hints = hints.concat([["c", "review"], ["x", "seen"]])
+    hints = hints.concat([["c", panel.reviewAction(panel.detail.row).hint], ["x", "seen"]])
     if (panel.sessionState(panel.detail.row, "review")) hints.push(["C", "continue review"])
     if (panel.sessionState(panel.detail.row, "fix")) hints.push(["F", "continue fix"])
     return hints
@@ -153,6 +173,24 @@ KeyboardPanel {
     if (done) panel.close()
   }
 
+  // Updates the rows in place, so the list keeps its delegates and its scroll position.
+  function syncRows() {
+    var map = {}
+    for (var known in panel.rowMap) map[known] = panel.rowMap[known]
+    for (var i = 0; i < rows.length; i++) map[rows[i].key] = rows[i]
+    panel.rowMap = map
+    Model.syncKeys(rowModel, rows)
+  }
+
+  // An item takes the cursor only when the pointer moves, not when the item moves under the pointer.
+  function pointerMoved(item, mouse) {
+    return pointerGate.moved(item, mouse)
+  }
+
+  function resetPointer() {
+    pointerGate.reset()
+  }
+
   function setCursor(index) {
     panel.cursor = index
     panel.cursorKey = index >= 0 && index < rows.length ? rows[index].key : ""
@@ -161,6 +199,7 @@ KeyboardPanel {
   function moveCursor(delta) {
     if (rows.length === 0) return
     panel.cursorActive = true
+    panel.resetPointer()
     panel.setCursor(Math.max(0, Math.min(rows.length - 1, panel.cursor + delta)))
     rowList.positionViewAtIndex(panel.cursor, ListView.Contain)
   }
@@ -180,11 +219,53 @@ KeyboardPanel {
     if (index >= 0 && index < rows.length && rows[index].group === "mine") panel.startSession(index, "fix")
   }
 
+  // The review action of a row. A saved review session makes the next review a
+  // follow-up review, which publishes a new summary.
+  function reviewAction(row) {
+    if (panel.sessionState(row, "review") === "saved")
+      return { text: "Re-review", hint: "re-review", tooltip: "Check the earlier findings and publish a new summary on GitLab · c" }
+    return { text: "Review", hint: "review", tooltip: "Review with Claude Code and publish on GitLab · c" }
+  }
+
+  // The key hints of the list for the row under the cursor.
+  function listHints() {
+    var hints = [["Enter", "open"], ["/", "filter"]]
+    var row = panel.cursor < rows.length ? rows[panel.cursor] : null
+    if (row) {
+      hints.push(["l", "details"], ["c", panel.reviewAction(row).hint])
+      if (row.group === "mine") hints.push(["f", "fix"])
+      if (row.unseen) hints.push(["x", "seen"])
+      if (panel.sessionState(row, "review")) hints.push(["C", "continue review"])
+      if (panel.sessionState(row, "fix")) hints.push(["F", "continue fix"])
+      hints.push(["H", row.hidden ? "restore" : "remove"])
+    }
+    for (var i = 0; i < rows.length; i++) {
+      if (!rows[i].unseen) continue
+      hints.push(["n", "next new"])
+      break
+    }
+    return hints.concat([["a", "removed"], ["r", "refresh"]])
+  }
+
+  // Moves the cursor to the next unseen row after the cursor, and wraps around.
+  function nextUnseen() {
+    for (var step = 1; step <= rows.length; step++) {
+      var index = (panel.cursor + step) % rows.length
+      if (!rows[index].unseen) continue
+      panel.cursorActive = true
+      panel.resetPointer()
+      panel.setCursor(index)
+      rowList.positionViewAtIndex(index, ListView.Contain)
+      return
+    }
+  }
+
   // The buttons of the row under the cursor. Each button also has a key.
   function actionsFor(row) {
     var actions = []
     if (row.group === "mine") actions.push({ kind: "fix", text: "Fix", tooltip: "Fix with Claude Code, then ask before the push · f" })
-    actions.push({ kind: "review", text: "Review", tooltip: "Review with Claude Code and publish on GitLab · c" })
+    var review = panel.reviewAction(row)
+    actions.push({ kind: "review", text: review.text, tooltip: review.tooltip })
     if (row.unseen) actions.push({ kind: "seen", text: "Seen", tooltip: "Mark as seen · x" })
     actions.push({ kind: "details", text: "", icon: "\uf054", tooltip: "Details · l" })
     return actions
@@ -201,11 +282,12 @@ KeyboardPanel {
     return panel.svc ? panel.svc.toneColor(tone) : panel.foreground
   }
 
-  // "running" for a session in tmux, "saved" for a session that can resume, or "".
+  // "running" or "waiting" for a session in tmux, "saved" for a session that can resume, or "".
   function sessionState(row, kind) {
     var marker = kind + ":" + row.project + "!" + row.iid
     if (!panel.svc) return ""
-    return panel.svc.sessions[marker] ? "running" : panel.svc.savedSessions[marker] ? "saved" : ""
+    var running = panel.svc.sessions[marker]
+    return running === "waiting" ? "waiting" : running ? "running" : panel.svc.savedSessions[marker] ? "saved" : ""
   }
 
   // Opens the session of a row where it stopped, without a new prompt.
@@ -217,12 +299,13 @@ KeyboardPanel {
   // The pills of a row: its sessions, then its statuses. A click on a session pill continues the session.
   function pillsFor(row) {
     var pills = []
-    if (row.hidden) pills.push({ text: "hidden", tone: "muted" })
-    var names = { review: ["reviewing", "review session"], fix: ["fixing", "fix session"] }
+    if (row.hidden) pills.push({ text: "removed", tone: "muted" })
+    var names = { review: ["reviewing", "review waits", "review session"], fix: ["fixing", "fix waits", "fix session"] }
     for (var kind in names) {
       var state = panel.sessionState(row, kind)
       if (state === "running") pills.push({ text: names[kind][0], tone: "info", session: kind })
-      else if (state === "saved") pills.push({ text: names[kind][1], tone: "muted", session: kind })
+      else if (state === "waiting") pills.push({ text: names[kind][1], tone: "warning", session: kind })
+      else if (state === "saved") pills.push({ text: names[kind][2], tone: "muted", session: kind })
     }
     return pills.concat(row.badges)
   }
@@ -309,6 +392,15 @@ KeyboardPanel {
       onTriggered: panel.now = Date.now()
     }
 
+    ListModel {
+      id: rowModel
+    }
+
+    PointerMoveGate {
+      id: pointerGate
+      referenceItem: keyCatcher
+    }
+
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
@@ -316,7 +408,6 @@ KeyboardPanel {
         if (panel.detail) {
           if (dy !== 0) panel.moveDetailCursor(dy)
           else if (dx < 0) panel.closeDetail()
-          else panel.openDetailItem(panel.detailCursor)
         } else if (dy !== 0) {
           panel.moveCursor(dy)
         } else if (dx > 0) {
@@ -346,6 +437,7 @@ KeyboardPanel {
         else if (text === "C" && rows.length > 0) panel.continueRow(rows[panel.cursor], "review")
         else if (text === "F" && rows.length > 0) panel.continueRow(rows[panel.cursor], "fix")
         else if (text === "r") panel.refresh()
+        else if (text === "n") panel.nextUnseen()
         else if (text === "A") panel.markAllSeen()
         else if (text === "H") panel.toggleHidden(panel.cursor)
         else if (text === "a") panel.showHidden = !panel.showHidden
@@ -443,7 +535,7 @@ KeyboardPanel {
         anchors.left: parent.left
         anchors.right: parent.right
         visible: panel.filtering || panel.query !== ""
-        placeholderText: "Project, title, branch, or author"
+        placeholderText: "Project, title, branch, author, or status"
         foreground: panel.foreground
         onActiveFocusChanged: panel.filtering = activeFocus
         // A new query puts the cursor on the first match.
@@ -480,16 +572,18 @@ KeyboardPanel {
         anchors.right: parent.right
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-        model: panel.rows
+        model: rowModel
         currentIndex: panel.cursor
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
         delegate: Item {
           id: rowDelegate
-          required property var modelData
+          required property string key
           required property int index
+          readonly property var modelData: panel.rowMap[key]
+          readonly property var previous: index > 0 ? panel.rows[index - 1] : null
 
-          readonly property bool startsGroup: index === 0 || panel.rows[index - 1].group !== modelData.group
+          readonly property bool startsGroup: !previous || previous.group !== modelData.group
 
           width: rowList.width
           height: groupHeader.height + rowSurface.implicitHeight
@@ -571,11 +665,42 @@ KeyboardPanel {
                   font.pixelSize: Style.font.bodySmall
                 }
 
+                // The buttons are on this line, so the title keeps its width on the cursor row.
+                // They have the height of a pill, so the line keeps its height.
+                Row {
+                  id: rowActions
+                  anchors.right: rowPipeline.left
+                  anchors.rightMargin: Style.spacing.lg
+                  anchors.verticalCenter: parent.verticalCenter
+                  visible: panel.cursorActive && panel.cursor === rowDelegate.index
+                  spacing: Style.spacing.sm
+
+                  Repeater {
+                    model: rowActions.visible ? panel.actionsFor(rowDelegate.modelData) : []
+
+                    delegate: Button {
+                      required property var modelData
+                      height: rowPills.height
+                      text: modelData.text
+                      iconText: modelData.icon || ""
+                      tooltipText: modelData.tooltip
+                      bordered: true
+                      background: Util.alpha(panel.foreground, 0.06)
+                      foreground: panel.foreground
+                      fontFamily: Style.font.family
+                      fontSize: Style.font.caption
+                      horizontalPadding: Style.spacing.md
+                      verticalPadding: 0
+                      onClicked: panel.runAction(rowDelegate.index, modelData.kind)
+                    }
+                  }
+                }
+
                 Text {
                   id: rowName
                   anchors.left: unseenDot.right
                   anchors.leftMargin: rowDelegate.modelData.unseen ? Style.spacing.sm : 0
-                  anchors.right: rowPipeline.left
+                  anchors.right: rowActions.visible ? rowActions.left : rowPipeline.left
                   anchors.rightMargin: Style.spacing.lg
                   text: rowDelegate.modelData.name + " !" + rowDelegate.modelData.iid
                   textFormat: Text.PlainText
@@ -635,40 +760,11 @@ KeyboardPanel {
                   }
                 }
 
-                Row {
-                  id: rowActions
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                  visible: panel.cursorActive && panel.cursor === rowDelegate.index
-                  spacing: Style.spacing.sm
-
-                  Repeater {
-                    model: rowActions.visible ? panel.actionsFor(rowDelegate.modelData) : []
-
-                    delegate: Button {
-                      required property var modelData
-                      height: rowPills.height
-                      text: modelData.text
-                      iconText: modelData.icon || ""
-                      tooltipText: modelData.tooltip
-                      bordered: true
-                      background: Util.alpha(panel.foreground, 0.06)
-                      foreground: panel.foreground
-                      fontFamily: Style.font.family
-                      fontSize: Style.font.caption
-                      horizontalPadding: Style.spacing.md
-                      verticalPadding: 0
-                      onClicked: panel.runAction(rowDelegate.index, modelData.kind)
-                    }
-                  }
-                }
-
                 Text {
                   id: rowTitle
                   anchors.left: rowPills.right
                   anchors.leftMargin: Style.spacing.md
-                  anchors.right: rowActions.visible ? rowActions.left : parent.right
-                  anchors.rightMargin: rowActions.visible ? Style.spacing.md : 0
+                  anchors.right: parent.right
                   anchors.verticalCenter: parent.verticalCenter
                   text: rowDelegate.modelData.group === "mine" || rowDelegate.modelData.author === ""
                     ? rowDelegate.modelData.title
@@ -688,7 +784,8 @@ KeyboardPanel {
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
               acceptedButtons: Qt.LeftButton
-              onEntered: {
+              onPositionChanged: function(mouse) {
+                if (!panel.pointerMoved(rowSurface, mouse)) return
                 panel.cursorActive = true
                 panel.setCursor(rowDelegate.index)
               }
@@ -765,7 +862,7 @@ KeyboardPanel {
           KeyHints {
             width: parent.width
             foreground: panel.foreground
-            hints: panel.keyHints
+            hints: panel.listHints()
           }
         }
       }

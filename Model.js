@@ -375,15 +375,51 @@ function rows(state, showHidden, reviews) {
   })
 }
 
-// The rows where each word of the query is in the project, the title,
-// the source branch, or the author. Case does not matter. An empty query keeps all rows.
+// The rows in the order of the keys in order, which the panel showed when it opened.
+// A row that is not in order comes first in its group, in its sorted place.
+function keepOrder(values, order) {
+  var rank = {}
+  var keys = list(order)
+  for (var i = 0; i < keys.length; i++) rank["$" + keys[i]] = i
+  var all = list(values)
+  var ranked = []
+  for (var j = 0; j < all.length; j++) {
+    var known = rank.hasOwnProperty("$" + all[j].key)
+    ranked.push({ row: all[j], index: j, rank: known ? rank["$" + all[j].key] : -1 })
+  }
+  ranked.sort(function(a, b) {
+    if (a.row.group !== b.row.group) return GROUPS.indexOf(a.row.group) - GROUPS.indexOf(b.row.group)
+    if ((a.rank < 0) !== (b.rank < 0)) return a.rank < 0 ? -1 : 1
+    return a.rank !== b.rank ? a.rank - b.rank : a.index - b.index
+  })
+  var result = []
+  for (var k = 0; k < ranked.length; k++) result.push(ranked[k].row)
+  return result
+}
+
+// Makes a list model hold { key } for each item, in order. The model only inserts,
+// moves, and removes entries, so a view keeps its delegates and its scroll position.
+// model is a ListModel, or any object with count, get, insert, move, and remove.
+function syncKeys(model, items) {
+  var all = list(items)
+  for (var i = 0; i < all.length; i++) {
+    var j = i
+    while (j < model.count && model.get(j).key !== all[i].key) j++
+    if (j === model.count) model.insert(i, { key: all[i].key })
+    else if (j !== i) model.move(j, i, 1)
+  }
+  if (model.count > all.length) model.remove(all.length, model.count - all.length)
+}
+
+// The rows where each word of the query is in the project, the title, the source
+// branch, the author, or the status. Case does not matter. An empty query keeps all rows.
 function filterRows(values, query) {
   var all = list(values)
   var terms = String(query || "").toLowerCase().split(/\s+/)
   var result = []
   for (var i = 0; i < all.length; i++) {
     // The line breaks stop a word from matching across two fields.
-    var fields = [all[i].project, all[i].title, all[i].sourceBranch, all[i].author].join("\n").toLowerCase()
+    var fields = [all[i].project, all[i].title, all[i].sourceBranch, all[i].author, all[i].status].join("\n").toLowerCase()
     var match = true
     for (var j = 0; j < terms.length; j++) if (terms[j] && fields.indexOf(terms[j]) === -1) match = false
     if (match) result.push(all[i])
@@ -583,13 +619,15 @@ function parseSavedSessions(raw) {
   return result
 }
 
-// Reads the tmux markers of the open sessions, one "<kind>:<project>!<iid>" on each line.
-// The result maps each marker to true.
+// Reads the tmux markers of the open sessions. Each line has a marker
+// "<kind>:<project>!<iid>", a tab, and the state that the hooks of the session record.
+// The result maps each marker to "waiting" when Claude Code waits for the user, or to "working".
 function parseSessions(raw) {
   var result = {}
   var lines = String(raw || "").split("\n")
   for (var i = 0; i < lines.length; i++) {
-    if (/^(review|fix):[^\s!]+![1-9][0-9]*$/.test(lines[i])) result[lines[i]] = true
+    var fields = lines[i].split("\t")
+    if (/^(review|fix):[^\s!]+![1-9][0-9]*$/.test(fields[0])) result[fields[0]] = fields[1] === "waiting" ? "waiting" : "working"
   }
   return result
 }
@@ -671,6 +709,7 @@ function activity(mr, me) {
         line = notes[j].line
       }
       items.push({
+        key: "note:" + notes[j].id,
         kind: notes[j].author === me ? "own" : wrote ? "reply" : "comment",
         author: notes[j].author,
         atMs: ms(notes[j].at),
@@ -691,7 +730,7 @@ function activity(mr, me) {
     var event = events[k]
     var first = String(event.body.split("\n")[0])
     var link = event.body.match(VERSION_LINK)
-    var item = { kind: "event", author: event.author, atMs: ms(event.at), verb: "", body: "", lines: [], path: "", line: 0, url: link ? versionUrl(mr, link) : mr.url }
+    var item = { key: "event:" + event.id, kind: "event", author: event.author, atMs: ms(event.at), verb: "", body: "", lines: [], path: "", line: 0, url: link ? versionUrl(mr, link) : mr.url }
 
     var commits = first.match(/^added ([0-9]+) commits?/)
     if (commits) {
@@ -726,10 +765,17 @@ function activity(mr, me) {
   return items.sort(function(a, b) { return b.atMs - a.atMs })
 }
 
+// The time of the newest activity of another person when the user last saw the row, or 0.
+function seenSince(state, key) {
+  var seen = state && state.seen && state.seen[key]
+  return seen ? seen.activityAt || seen.at : 0
+}
+
 // The detail page of a row: the row, the merge request, and its activity.
-// An item of another person is new when it is newer than the activity that the user saw.
-// diffUrl shows the commits that are new, as one diff of GitLab.
-function detail(state, key, reviews) {
+// An item of another person is new when it is newer than since. Without since,
+// the page uses the activity that the user saw. The panel keeps since while the page
+// is open, so the new items stay new. diffUrl shows the new commits as one diff of GitLab.
+function detail(state, key, reviews, since) {
   var mr = mergeRequestForRow(state && state.inbox, key)
   var row = null
   var all = rows(state, true, reviews)
@@ -737,8 +783,7 @@ function detail(state, key, reviews) {
   if (!mr || !row) return null
 
   var me = state.inbox.me
-  var seen = state.seen[key]
-  var since = seen ? seen.activityAt || seen.at : 0
+  if (typeof since !== "number") since = seenSince(state, key)
   var items = activity(mr, me)
   var newCount = 0
   var diffId = 0
@@ -804,8 +849,11 @@ if (typeof module !== "undefined") {
     emptyState: emptyState,
     reconcile: reconcile,
     rows: rows,
+    keepOrder: keepOrder,
+    syncKeys: syncKeys,
     filterRows: filterRows,
     rowByKey: rowByKey,
+    seenSince: seenSince,
     detail: detail,
     freshRows: freshRows,
     unreadCount: unreadCount,
